@@ -121,4 +121,7 @@ function global:op { opencode @args }
 
 function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 
+Set-Alias -Name c -Value cls -Option AllScope -Force
+function global:gs { git status @args }
+
 
