@@ -19,6 +19,10 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `op` | Launch opencode |
 | `sf` | `sempath find` |
 | `HH` | `hermes gateway run -v` |
+| `alias` | Universal command lookup |
+| `c` | Alias for `cls` (clear screen) |
+| `gs` | `git status` |
+| `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
 
 ---
@@ -137,6 +141,18 @@ HH [<args>...]
 ```
 
 Shortcut for `hermes gateway run -v`.
+
+---
+
+### `alias` — Universal command lookup
+
+```powershell
+alias [<name>]
+```
+
+Looks up any alias, function, or cmdlet and shows its definition. With no
+arguments, lists all aliases. Works as a replacement for `Get-Alias` which
+only finds aliases, not functions.
 
 ---
 
