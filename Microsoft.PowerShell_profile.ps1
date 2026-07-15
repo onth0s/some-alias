@@ -8,7 +8,6 @@ function global:opf { $target = if ($args.Count -gt 0) { ($args -join ' ') -repl
 function global:HH { hermes gateway run -v @args }
 
 function global:yt {
-    [CmdletBinding()]
     param(
         [Parameter(Position = 0)]
         [string]$Url,
@@ -123,5 +122,21 @@ function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 
 Set-Alias -Name c -Value cls -Option AllScope -Force
 function global:gs { git status @args }
+
+function global:alias {
+    if ($args.Count -eq 0) {
+        Get-Alias | Sort-Object Name | Format-Table Name, Definition -AutoSize
+        return
+    }
+    $name = $args[0]
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if (-not $cmd) { Write-Error "No command, alias, or function named '$name'"; return }
+    switch ($cmd.CommandType) {
+        'Alias'   { Write-Host "$($cmd.Name) -> $($cmd.ResolvedCommand)" -ForegroundColor Cyan }
+        'Function'{ Write-Host "$($cmd.Name) = function" -ForegroundColor Green; Write-Host $cmd.Definition -ForegroundColor DarkGray }
+        'Cmdlet'  { Write-Host "$($cmd.Name) = cmdlet ($($cmd.Source))" -ForegroundColor Yellow }
+        default   { Write-Host "$($cmd.Name) = $($_) ($($cmd.Source))" -ForegroundColor White }
+    }
+}
 
 
