@@ -121,6 +121,7 @@ function global:op { opencode @args }
 function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 
 Set-Alias -Name c -Value cls -Option AllScope -Force
+function global:tree { npx tree-node-cli -I 'node_modules|.next' @args }
 function global:gs { git status @args }
 
 function global:alias {
@@ -136,6 +137,25 @@ function global:alias {
         'Function'{ Write-Host "$($cmd.Name) = function" -ForegroundColor Green; Write-Host $cmd.Definition -ForegroundColor DarkGray }
         'Cmdlet'  { Write-Host "$($cmd.Name) = cmdlet ($($cmd.Source))" -ForegroundColor Yellow }
         default   { Write-Host "$($cmd.Name) = $($_) ($($cmd.Source))" -ForegroundColor White }
+    }
+    $searchFiles = @($PROFILE)
+    if ($PROFILE.CurrentUserAllHosts -and $PROFILE.CurrentUserAllHosts -ne $PROFILE) { $searchFiles += $PROFILE.CurrentUserAllHosts }
+    if ($PROFILE.AllUsersAllHosts -and (Test-Path $PROFILE.AllUsersAllHosts)) { $searchFiles += $PROFILE.AllUsersAllHosts }
+    foreach ($file in $searchFiles) {
+        if (-not (Test-Path $file)) { continue }
+        $content = Get-Content $file -Raw
+        $escapedName = [regex]::Escape($name)
+        if ($cmd.CommandType -eq 'Alias') {
+            if ($content -match "(?m)^\s*Set-Alias\s+-Name\s+'?$escapedName'?\s") {
+                Write-Host "  defined in: $file" -ForegroundColor DarkGray
+                return
+            }
+        } elseif ($cmd.CommandType -eq 'Function') {
+            if ($content -match "(?m)^\s*function\s+.*:$escapedName\s*[{]") {
+                Write-Host "  defined in: $file" -ForegroundColor DarkGray
+                return
+            }
+        }
     }
 }
 
