@@ -15,9 +15,11 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `yt` | Smart yt-dlp wrapper with playlist awareness |
 | `gotp` | `cd` to a path copied to clipboard |
 | `stp` | Open a path from clipboard in Explorer |
+| `opf` | Open a path (arg or clipboard) |
 | `gp` | Copy a path (arg or cwd) to clipboard |
 | `op` | Launch opencode |
 | `sf` | `sempath find` |
+| `sg` | `sempath get` (or `sempath <args>`) |
 | `HH` | `hermes gateway run -v` |
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
@@ -25,6 +27,8 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
+| `ow` | Run OpenWhispr dev server |
+| `tree` | Directory tree (ignores `node_modules`/`.next`) |
 
 ---
 
@@ -175,4 +179,47 @@ upkey
 
 Stops all running AutoHotkey processes, waits ~300 ms for memory to clear, then
 relaunches `STD_HotKeys.ahk`.
+
+---
+
+### `opf` — Open path (arg or clipboard)
+
+```powershell
+opf [<path>]
+```
+
+Opens a file or directory. With no argument, tries the clipboard: strips ANSI
+escape codes, terminal prefixes, and trailing file-size/metadata annotations,
+and tries single lines plus space-/newline-joined candidates before giving up.
+
+---
+
+### `sg` — sempath get
+
+```powershell
+sg
+```
+
+Runs `sempath get` with no arguments, or passes any given arguments straight to
+`sempath`.
+
+---
+
+### `ow` — OpenWhispr dev
+
+```powershell
+ow
+```
+
+`cd`s into the OpenWhispr project and runs `npm run dev`.
+
+---
+
+### `tree` — Directory tree
+
+```powershell
+tree [<args>...]
+```
+
+Renders a directory tree via `tree-node-cli`, ignoring `node_modules` and `.next`.
 
