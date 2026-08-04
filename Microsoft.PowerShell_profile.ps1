@@ -114,9 +114,17 @@ function global:yt {
 }
 
 function global:sf { sempath find @args }
+function global:sg {
+    if ($args.Count -eq 0) { sempath get } else { sempath @args }
+}
 $env:HOME = $env:USERPROFILE
 
 function global:op { opencode @args }
+
+function global:ow {
+    Set-Location -LiteralPath "C:\Users\Leonardo\001\00__DEV\OpenWhispr"
+    npm run dev
+}
 
 function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 
@@ -157,6 +165,12 @@ function global:alias {
             }
         }
     }
+}
+
+function global:upkey {
+    Stop-Process -Name "AutoHotkey*" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 300
+    Start-Process "C:\Users\Leonardo\001\00__DEV\zz - VAR\AutoHotkey\STD_HotKeys.ahk"
 }
 
 

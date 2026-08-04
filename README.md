@@ -24,6 +24,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `gs` | `git status` |
 | `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
+| `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
 
 ---
 
@@ -163,3 +164,15 @@ uprof
 ```
 
 Dot-sources `$PROFILE` to reload all functions without restarting PowerShell.
+
+---
+
+### `upkey` — Restart AutoHotkey
+
+```powershell
+upkey
+```
+
+Stops all running AutoHotkey processes, waits ~300 ms for memory to clear, then
+relaunches `STD_HotKeys.ahk`.
+
