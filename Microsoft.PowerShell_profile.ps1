@@ -1,9 +1,123 @@
-if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
+﻿if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
+
+function global:ConvertFrom-ClipboardPath {
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0, ValueFromPipeline = $true)]
+        [AllowEmptyString()]
+        [string]$Text,
+        [switch]$Basic,
+        [switch]$Junk,
+        [switch]$IncludeBytes
+    )
+    process {
+        if ($null -eq $Text) { return }
+        $out = $Text
+        $out = $out -replace "'" -replace '`'
+        if (-not $Basic) {
+            $out = $out -replace '^[\s\-*>#]+'
+            if ($Junk) {
+                $out = $out -replace '^(?:[^\w\s\:\\/]|✓|Success:?\s*Found\s*match:?)+\s*'
+            }
+            $out = $out -replace '^~', "$env:USERPROFILE"
+            $out = $out -replace '\s+$'
+        }
+        if ($IncludeBytes) {
+            $out = $out -replace '\s*\[[\d\.,\s]+\s*(?:B|KB|MB|GB|TB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$'
+        } else {
+            $out = $out -replace '\s*\[[\d\.,\s]+\s*(?:KB|MB|GB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$'
+        }
+        $out
+    }
+}
+
+function global:Resolve-PathString {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Path
+    )
+    if ([System.IO.Path]::IsPathRooted($Path)) { return $Path }
+    $resolved = Resolve-Path -LiteralPath $Path -ErrorAction SilentlyContinue
+    if ($resolved) { return $resolved.Path }
+    return (Join-Path (Get-Location).Path $Path)
+}
+
 function global:uprof { . "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" }
-function global:gp { $target = if ($args.Count -gt 0) { $args -join ' ' } else { Get-Location }; $target = $target -replace "'" -replace "$([char]96)" -replace '\s*\[[\d\.,\s]+\s*(?:KB|MB|GB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$'; if ([System.IO.Directory]::Exists($target) -or [System.IO.File]::Exists($target)) { $target | Set-Clipboard; Write-Host "Path copied to clipboard:" -ForegroundColor DarkGray -NoNewline; Write-Host "`n$target" -ForegroundColor Blue } else { Write-Error "Not found: $target" } }
-function global:gotp { $path = Get-Clipboard; if ($path) { $path = $path -replace "'" -replace "$([char]96)" -replace '\s*\[[\d\.,\s]+\s*(?:KB|MB|GB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$' -replace '^[\s\-*>#]+' -replace '\s+$' -replace '^~', "$env:USERPROFILE"; if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }; if ([System.IO.Directory]::Exists($path)) { Set-Location -LiteralPath $path; Write-Host "cd to: $path" -ForegroundColor Green } else { Write-Error "Not found: $path" } } else { Write-Error "Clipboard is empty" } }
-function global:stp { $path = Get-Clipboard; if ($path) { $path = $path -replace "'" -replace "$([char]96)" -replace '\s*\[[\d\.,\s]+\s*(?:KB|MB|GB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$' -replace '^[\s\-*>#]+' -replace '^~', "$env:USERPROFILE" -replace '\s+$'; if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }; if ([System.IO.Directory]::Exists($path)) { Start-Process explorer.exe $path; Write-Host "opened: $path" -ForegroundColor Green } else { Write-Error "Not found: $path" } } else { Write-Error "Clipboard is empty" } }
-function global:opf { $target = if ($args.Count -gt 0) { ($args -join ' ') -replace "'" -replace "$([char]96)" } else { Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue; $text = [System.Windows.Forms.Clipboard]::GetText() -replace "$([char]27)\[[\d;]*[a-zA-Z]" -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\p{Cf}]'; $clean = { param($s) $s -replace "'" -replace "$([char]96)" -replace '^[\s\-*>#]+' -replace '^(?:[^\w\s\:\\/]|âœ”|Success:?\s*Found\s*match:?)+\s*' -replace '\s*\[[\d\.,\s]+\s*(?:B|KB|MB|GB|TB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$' -replace '^~', "$env:USERPROFILE" -replace '\s+$' }; $rawLines = $text -split '\r?\n' | Where-Object { $_ }; $cleanedLines = $rawLines | ForEach-Object { & $clean $_ } | Where-Object { $_ }; $candidates = @(); $candidates += $cleanedLines; if ($rawLines.Count -gt 1) { $candidates += (& $clean ($rawLines -join ' ')); $candidates += (& $clean ($rawLines -join '')) }; foreach ($p in $candidates) { if ($p) { $full = if ([System.IO.Path]::IsPathRooted($p)) { $p } else { $resolved = Resolve-Path -LiteralPath $p -ErrorAction SilentlyContinue; if ($resolved) { $resolved.Path } else { Join-Path (Get-Location).Path $p } }; if ([System.IO.File]::Exists($full) -or [System.IO.Directory]::Exists($full)) { Start-Process $full; Write-Host "opened: $full" -ForegroundColor Green; return } } }; Write-Error "No valid file path in clipboard"; return }; $cleanTarget = & { param($s) $s -replace "'" -replace "$([char]96)" -replace '^[\s\-*>#]+' -replace '\s*\[[\d\.,\s]+\s*(?:B|KB|MB|GB|TB)\s*,\s*\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*$' -replace '^~', "$env:USERPROFILE" -replace '\s+$' } $target; $full = if ([System.IO.Path]::IsPathRooted($cleanTarget)) { $cleanTarget } else { $resolved = Resolve-Path -LiteralPath $cleanTarget -ErrorAction SilentlyContinue; if ($resolved) { $resolved.Path } else { Join-Path (Get-Location).Path $cleanTarget } }; if ([System.IO.File]::Exists($full) -or [System.IO.Directory]::Exists($full)) { Start-Process $full; Write-Host "opened: $full" -ForegroundColor Green } else { Write-Error "Not found: $full" } }
+function global:gp {
+    $target = if ($args.Count -gt 0) { $args -join ' ' } else { Get-Location }
+    $target = $target | ConvertFrom-ClipboardPath -Basic
+    if ([System.IO.Directory]::Exists($target) -or [System.IO.File]::Exists($target)) {
+        $target | Set-Clipboard
+        Write-Host "Path copied to clipboard:" -ForegroundColor DarkGray -NoNewline
+        Write-Host "`n$target" -ForegroundColor Blue
+    } else {
+        Write-Error "Not found: $target"
+    }
+}
+function global:gotp {
+    $path = Get-Clipboard
+    if ($path) {
+        $path = $path | ConvertFrom-ClipboardPath
+        if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }
+        if ([System.IO.Directory]::Exists($path)) {
+            Set-Location -LiteralPath $path
+            Write-Host "cd to: $path" -ForegroundColor Green
+        } else {
+            Write-Error "Not found: $path"
+        }
+    } else {
+        Write-Error "Clipboard is empty"
+    }
+}
+function global:stp {
+    $path = Get-Clipboard
+    if ($path) {
+        $path = $path | ConvertFrom-ClipboardPath
+        if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }
+        if ([System.IO.Directory]::Exists($path)) {
+            Start-Process explorer.exe $path
+            Write-Host "opened: $path" -ForegroundColor Green
+        } else {
+            Write-Error "Not found: $path"
+        }
+    } else {
+        Write-Error "Clipboard is empty"
+    }
+}
+function global:opf {
+    if ($args.Count -gt 0) {
+        $target = ($args -join ' ') | ConvertFrom-ClipboardPath -IncludeBytes
+        $full = Resolve-PathString $target
+        if ([System.IO.File]::Exists($full) -or [System.IO.Directory]::Exists($full)) {
+            Start-Process $full
+            Write-Host "opened: $full" -ForegroundColor Green
+        } else {
+            Write-Error "Not found: $full"
+        }
+        return
+    }
+    Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+    $text = [System.Windows.Forms.Clipboard]::GetText() -replace "$([char]27)\[[\d;]*[a-zA-Z]" -replace '[\x00-\x08\x0B\x0C\x0E-\x1F\x7F\p{Cf}]'
+    $rawLines = $text -split '\r?\n' | Where-Object { $_ }
+    $cleanedLines = $rawLines | ForEach-Object { $_ | ConvertFrom-ClipboardPath -Junk -IncludeBytes } | Where-Object { $_ }
+    $candidates = @()
+    $candidates += $cleanedLines
+    if ($rawLines.Count -gt 1) {
+        $candidates += (($rawLines -join ' ') | ConvertFrom-ClipboardPath -Junk -IncludeBytes)
+        $candidates += (($rawLines -join '') | ConvertFrom-ClipboardPath -Junk -IncludeBytes)
+    }
+    foreach ($p in $candidates) {
+        if ($p) {
+            $full = Resolve-PathString $p
+            if ([System.IO.File]::Exists($full) -or [System.IO.Directory]::Exists($full)) {
+                Start-Process $full
+                Write-Host "opened: $full" -ForegroundColor Green
+                return
+            }
+        }
+    }
+    Write-Error "No valid file path in clipboard"
+}
 function global:HH { hermes gateway run -v @args }
 function global:yt {
     param(
@@ -38,7 +152,6 @@ function global:yt {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
     $argsList += @("--embed-thumbnail", "--embed-metadata")
-    $startItem = 1
     if ($N -gt 0) {
         Write-Host "`nScanning playlist (first $N items)..." -ForegroundColor DarkGray
         $entries = & $ytdlp --flat-playlist --print "%(playlist_index)s|||%(id)s|||%(title)s" -I ":$N" $Url 2>$null
@@ -79,10 +192,8 @@ function global:yt {
             $indices = ($missing | ForEach-Object { $_.Index }) -join ','
             $argsList += @("-I", $indices)
         }
-    } elseif ($N -eq 0) {
-        $argsList += $Url
     }
-    if ($N -gt 0) { $argsList += $Url }
+    if ($N -ge 0) { $argsList += $Url }
     Write-Host "`nyt-dlp " -ForegroundColor DarkGray -NoNewline
     if ($isVideo) {
         Write-Host "[VIDEO]" -ForegroundColor Cyan -NoNewline
@@ -180,7 +291,7 @@ function global:upkey {
 
 
 
-# Waypoint - path bookmark CLI (ASCII only: profiles may not be UTF-8)
+# Waypoint - path bookmark CLI (file saved as UTF-8)
 # Session history shared by cd and wp jumps. cd - toggles to the previous
 # location; wp undo / wp history use the CLI's persistent stack instead.
 $global:WpHistory = [System.Collections.Generic.List[string]]::new()
@@ -235,31 +346,33 @@ function cdh {
 
 function wp {
     $env:WP_FORCE_COLOR = if ([Environment]::UserInteractive) { "1" } else { "0" }
-    # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
-    # would buffer stdout on the pipe, causing invisible prompts. Run live.
-    $interactiveCmds = @('add')
-    if ($args.Count -gt 0 -and $interactiveCmds -contains $args[0]) {
-        & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
-        Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
-        return
-    }
-    $lines = @(& python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args)
-    Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
-    if ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and $lines[0]) {
-        try {
-            $ok = Test-Path -LiteralPath $lines[0] -ErrorAction Stop
-        } catch {
-            # Non-path single-line output (e.g. "Saved demo -> C:\...") must
-            # never surface as a red error; it is just echoed below.
-            $ok = $false
+    try {
+        # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
+        # would buffer stdout on the pipe, causing invisible prompts. Run live.
+        $interactiveCmds = @('add')
+        if ($args.Count -gt 0 -and $interactiveCmds -contains $args[0]) {
+            & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
+            return
         }
-        if ($ok) {
-            Set-WaypointLocation -Literal $lines[0]
+        $lines = @(& python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args)
+        if ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and $lines[0]) {
+            try {
+                $ok = Test-Path -LiteralPath $lines[0] -ErrorAction Stop
+            } catch {
+                # Non-path single-line output (e.g. "Saved demo -> C:\...") must
+                # never surface as a red error; it is just echoed below.
+                $ok = $false
+            }
+            if ($ok) {
+                Set-WaypointLocation -Literal $lines[0]
+            } else {
+                Write-Output $lines[0]
+            }
         } else {
-            Write-Output $lines[0]
+            $lines | ForEach-Object { Write-Output $_ }
         }
-    } else {
-        $lines | ForEach-Object { Write-Output $_ }
+    } finally {
+        Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
     }
 }
 
