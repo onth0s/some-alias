@@ -17,6 +17,8 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `stp` | Open a path from clipboard in Explorer |
 | `opf` | Open a path (arg or clipboard) |
 | `gp` | Copy a path (arg or cwd) to clipboard |
+| `ConvertFrom-ClipboardPath` | Internal helper: normalize path text |
+| `Resolve-PathString` | Internal helper: resolve a path string to a full path |
 | `op` | Launch opencode |
 | `sf` | `sempath find` |
 | `sg` | `sempath get` (or `sempath <args>`) |
@@ -117,6 +119,22 @@ gp [<path>]
 Copies the given path to clipboard. If no argument provided, copies the current
 working directory. Strips surrounding quotes, backticks, and trailing file-size
 annotations before copying.
+
+---
+
+### Path helpers (`ConvertFrom-ClipboardPath`, `Resolve-PathString`)
+
+Internal functions shared by `gp`, `gotp`, `stp`, and `opf`; not meant to be
+called directly.
+
+- `ConvertFrom-ClipboardPath` — single source of the path-text cleaning used by
+  the clipboard utilities: strips quotes and backticks, leading terminal junk
+  (`-`, `>`, `*`, `#`, checkmarks, `Success: Found match:` prefixes), trailing
+  `[<size>, <date> <time>]` metadata annotations, expands `~` to the user
+  profile, and trims whitespace.
+- `Resolve-PathString` — resolves a path string to a full path: kept as-is when
+  already rooted, resolved via `Resolve-Path` when it exists, otherwise joined
+  to the current directory.
 
 ---
 
