@@ -26,6 +26,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
 | `gs` | `git status` |
+| `gsall` | Check git status of all repos under `00__DEV` |
 | `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
@@ -258,4 +259,15 @@ xxx
 ```
 
 Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function rather than an alias.)
+
+---
+
+### `gsall` — Check all repos
+
+```powershell
+gsall
+```
+
+Runs `check-repos.ps1`, which scans `00__DEV` (recursively, up to depth 3) and
+reports each git repo's status as `CLEAN` or `DIRTY`.
 

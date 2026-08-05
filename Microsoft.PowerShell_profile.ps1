@@ -46,10 +46,11 @@ function global:uprof { . "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShel
 function global:gp {
     $target = if ($args.Count -gt 0) { $args -join ' ' } else { Get-Location }
     $target = $target | ConvertFrom-ClipboardPath -Basic
-    if ([System.IO.Directory]::Exists($target) -or [System.IO.File]::Exists($target)) {
-        $target | Set-Clipboard
+    $resolved = Resolve-Path -LiteralPath $target -ErrorAction SilentlyContinue
+    if ($resolved) {
+        $resolved.Path | Set-Clipboard
         Write-Host "Path copied to clipboard:" -ForegroundColor DarkGray -NoNewline
-        Write-Host "`n$target" -ForegroundColor Blue
+        Write-Host "`n$($resolved.Path)" -ForegroundColor Blue
     } else {
         Write-Error "Not found: $target"
     }
@@ -58,8 +59,8 @@ function global:gotp {
     $path = Get-Clipboard
     if ($path) {
         $path = $path | ConvertFrom-ClipboardPath
-        if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }
-        if ([System.IO.Directory]::Exists($path)) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) { $path = Split-Path -Parent $path }
+        if (Test-Path -LiteralPath $path -PathType Container) {
             Set-Location -LiteralPath $path
             Write-Host "cd to: $path" -ForegroundColor Green
         } else {
@@ -73,8 +74,8 @@ function global:stp {
     $path = Get-Clipboard
     if ($path) {
         $path = $path | ConvertFrom-ClipboardPath
-        if ([System.IO.File]::Exists($path)) { $path = Split-Path -Parent $path }
-        if ([System.IO.Directory]::Exists($path)) {
+        if (Test-Path -LiteralPath $path -PathType Leaf) { $path = Split-Path -Parent $path }
+        if (Test-Path -LiteralPath $path -PathType Container) {
             Start-Process explorer.exe $path
             Write-Host "opened: $path" -ForegroundColor Green
         } else {
@@ -248,6 +249,7 @@ function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 Set-Alias -Name c -Value cls -Option AllScope -Force
 function global:tree { npx tree-node-cli -I 'node_modules|.next' @args }
 function global:gs { git status @args }
+function global:gsall { & "C:\Users\Leonardo\001\00__DEV\check-repos.ps1" @args }
 function global:alias {
     if ($args.Count -eq 0) {
         Get-Alias | Sort-Object Name | Format-Table Name, Definition -AutoSize
