@@ -27,8 +27,9 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
-| `ow` | Run OpenWhispr dev server |
+| `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
+| `xxx` | Exit the session |
 
 ---
 
@@ -205,13 +206,20 @@ Runs `sempath get` with no arguments, or passes any given arguments straight to
 
 ---
 
-### `ow` — OpenWhispr dev
+### `ow` — Manage OpenWhispr pm2 services
 
 ```powershell
-ow
+ow          # start or restart openwhispr + openwhispr-preview
+ow nuke     # stop and delete both pm2 services
 ```
 
-`cd`s into the OpenWhispr project and runs `npm run dev`.
+Checks the pm2 status of `openwhispr` and `openwhispr-preview`:
+
+- **Both online** → restart both
+- **Both offline** → start both
+- **Mixed** → restart both
+
+`ow nuke` stops and deletes both services entirely.
 
 ---
 
@@ -222,4 +230,14 @@ tree [<args>...]
 ```
 
 Renders a directory tree via `tree-node-cli`, ignoring `node_modules` and `.next`.
+
+---
+
+### `xxx` — Exit session
+
+```powershell
+xxx
+```
+
+Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function rather than an alias.)
 
