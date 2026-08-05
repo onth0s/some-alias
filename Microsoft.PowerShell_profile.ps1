@@ -201,10 +201,15 @@ function Set-WaypointLocation {
         $target = $global:WpHistory[$global:WpHistory.Count - 2]
     }
     $before = (Get-Location).Path
-    if ($target) {
-        if ($Literal) { Set-Location -LiteralPath $target } else { Set-Location -Path $target }
-    } else {
-        Set-Location ~
+    try {
+        if ($target) {
+            if ($Literal) { Set-Location -LiteralPath $target -ErrorAction Stop } else { Set-Location -Path $target -ErrorAction Stop }
+        } else {
+            Set-Location ~
+        }
+    } catch {
+        Write-Warning "Path not found: '$target'"
+        return
     }
     $current = (Get-Location).Path
     if ($current -ne $before) {
