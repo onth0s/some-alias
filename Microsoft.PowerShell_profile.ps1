@@ -249,7 +249,7 @@ function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 Set-Alias -Name c -Value cls -Option AllScope -Force
 function global:tree { npx tree-node-cli -I 'node_modules|.next' @args }
 function global:gs { git status @args }
-function global:gsall { & "C:\Users\Leonardo\001\00__DEV\check-repos.ps1" @args }
+function global:gsall { & "C:\Users\Leonardo\Documents\WindowsPowerShell\check-repos.ps1" @args }
 function global:alias {
     if ($args.Count -eq 0) {
         Get-Alias | Sort-Object Name | Format-Table Name, Definition -AutoSize
@@ -295,13 +295,16 @@ function global:upkey {
 
 
 
+
+
 # Waypoint - path bookmark CLI (ASCII only: profiles may not be UTF-8)
-# Session history shared by cd and wp jumps. cd - toggles to the previous
-# location; wp undo / wp history use the CLI's persistent stack instead.
+# Session history shared by cd, cd.. / cd~ / cd\ and wp jumps.
+# cd - toggles to the previous location; wp undo / wp history use the
+# CLI's persistent stack instead.
 $global:WpHistory = [System.Collections.Generic.List[string]]::new()
 $global:WpMaxHistory = 50
 
-function Set-WaypointLocation {
+function global:Set-WaypointLocation {
     param(
         [switch]$Literal,
         [Parameter(ValueFromRemainingArguments=$true)]
@@ -343,11 +346,18 @@ function Set-WaypointLocation {
 Set-Alias -Name cd -Value Set-WaypointLocation -Option AllScope -Scope Global -Force
 Set-Alias -Name chdir -Value Set-WaypointLocation -Option AllScope -Scope Global -Force
 
-function cdh {
+# The no-space shortcuts (cd.., cd~, cd\) are single tokens that PowerShell
+# resolves to native Set-Location, bypassing the cd alias. Define same-named
+# functions so they route through Set-WaypointLocation and feed history too.
+function global:cd.. { Set-WaypointLocation .. }
+function global:cd~ { Set-WaypointLocation ~ }
+function global:cd\ { Set-WaypointLocation \ }
+
+function global:cdh {
     $global:WpHistory
 }
 
-function wp {
+function global:wp {
     $env:WP_FORCE_COLOR = if ([Environment]::UserInteractive) { "1" } else { "0" }
     # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
     # would buffer stdout on the pipe, causing invisible prompts. Run live.
@@ -378,6 +388,8 @@ function wp {
 }
 
 # End Waypoint block
+
+
 
 
 
