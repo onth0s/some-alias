@@ -215,7 +215,7 @@ function global:ow {
         [Parameter(Position = 0)]
         [string]$Action
     )
-    if ($Action -eq 'nuke') {
+    if ($Action -in @('nuke', 'kill')) {
         Write-Host "Killing openwhispr services..." -ForegroundColor Yellow
         pm2 stop openwhispr openwhispr-preview 2>$null | Out-Null
         pm2 delete openwhispr openwhispr-preview 2>$null | Out-Null

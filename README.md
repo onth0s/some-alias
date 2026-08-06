@@ -230,6 +230,7 @@ Runs `sempath get` with no arguments, or passes any given arguments straight to
 ```powershell
 ow          # start or restart openwhispr + openwhispr-preview
 ow nuke     # stop and delete both pm2 services
+ow kill     # stop and delete both pm2 services (alias of nuke)
 ```
 
 Checks the pm2 status of `openwhispr` and `openwhispr-preview`:
@@ -238,7 +239,7 @@ Checks the pm2 status of `openwhispr` and `openwhispr-preview`:
 - **Both offline** → start both
 - **Mixed** → restart both
 
-`ow nuke` stops and deletes both services entirely.
+`ow nuke` (and `ow kill`) stops and deletes both services entirely.
 
 ---
 
