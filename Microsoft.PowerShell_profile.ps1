@@ -1,4 +1,4 @@
-﻿if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
+if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
 
 function global:ConvertFrom-ClipboardPath {
     [CmdletBinding()]
@@ -239,7 +239,7 @@ function global:ow {
         pm2 restart openwhispr openwhispr-preview
     } elseif ($offline.Count -eq 2) {
         Write-Host "Starting openwhispr services..." -ForegroundColor Cyan
-        pm2 start openwhispr openwhispr-preview
+        pm2 start "C:\Users\Leonardo\001\00__DEV\OpenWhispr\ecosystem.config.cjs"
     } else {
         Write-Host "Mixed state, restarting..." -ForegroundColor Yellow
         pm2 restart openwhispr openwhispr-preview
@@ -293,7 +293,9 @@ function global:upkey {
 
 
 
-# Waypoint - path bookmark CLI (file saved as UTF-8)
+
+
+# Waypoint - path bookmark CLI (ASCII only: profiles may not be UTF-8)
 # Session history shared by cd and wp jumps. cd - toggles to the previous
 # location; wp undo / wp history use the CLI's persistent stack instead.
 $global:WpHistory = [System.Collections.Generic.List[string]]::new()
@@ -314,19 +316,18 @@ function Set-WaypointLocation {
         $target = $global:WpHistory[$global:WpHistory.Count - 2]
     }
     $before = (Get-Location).Path
-    try {
-        if ($target) {
-            if ($Literal) { Set-Location -LiteralPath $target -ErrorAction Stop } else { Set-Location -Path $target -ErrorAction Stop }
-        } else {
-            Set-Location ~
-        }
-    } catch {
-        Write-Warning "Path not found: '$target'"
-        return
+    if ($target) {
+        if ($Literal) { Set-Location -LiteralPath $target } else { Set-Location -Path $target }
+    } else {
+        Set-Location ~
     }
     $current = (Get-Location).Path
     if ($current -ne $before) {
+        # Track both the dir we left and the dir we arrived at (each deduped),
+        # so the newest persistent history entry is always the current dir.
+        # A fresh tab can then wp h / wp u 0 to land where the last tab was.
         & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" _record_history $before > $null 2>&1
+        & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" _record_history $current > $null 2>&1
         if ($global:WpHistory.Count -eq 0 -or $global:WpHistory[$global:WpHistory.Count - 1] -ne $before) {
             $global:WpHistory.Add($before)
         }
@@ -348,37 +349,37 @@ function cdh {
 
 function wp {
     $env:WP_FORCE_COLOR = if ([Environment]::UserInteractive) { "1" } else { "0" }
-    try {
-        # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
-        # would buffer stdout on the pipe, causing invisible prompts. Run live.
-        $interactiveCmds = @('add')
-        if ($args.Count -gt 0 -and $interactiveCmds -contains $args[0]) {
-            & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
-            return
-        }
-        $lines = @(& python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args)
-        if ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and $lines[0]) {
-            try {
-                $ok = Test-Path -LiteralPath $lines[0] -ErrorAction Stop
-            } catch {
-                # Non-path single-line output (e.g. "Saved demo -> C:\...") must
-                # never surface as a red error; it is just echoed below.
-                $ok = $false
-            }
-            if ($ok) {
-                Set-WaypointLocation -Literal $lines[0]
-            } else {
-                Write-Output $lines[0]
-            }
-        } else {
-            $lines | ForEach-Object { Write-Output $_ }
-        }
-    } finally {
+    # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
+    # would buffer stdout on the pipe, causing invisible prompts. Run live.
+    $interactiveCmds = @('add')
+    if ($args.Count -gt 0 -and $interactiveCmds -contains $args[0]) {
+        & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
         Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
+        return
+    }
+    $lines = @(& python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args)
+    Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
+    if ($LASTEXITCODE -eq 0 -and $lines.Count -eq 1 -and $lines[0]) {
+        try {
+            $ok = Test-Path -LiteralPath $lines[0] -ErrorAction Stop
+        } catch {
+            # Non-path single-line output (e.g. "Saved demo -> C:\...") must
+            # never surface as a red error; it is just echoed below.
+            $ok = $false
+        }
+        if ($ok) {
+            Set-WaypointLocation -Literal $lines[0]
+        } else {
+            Write-Output $lines[0]
+        }
+    } else {
+        $lines | ForEach-Object { Write-Output $_ }
     }
 }
 
 # End Waypoint block
+
+
 
 
 
