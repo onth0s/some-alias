@@ -1,6 +1,7 @@
 $roots = @(
     'C:\Users\Leonardo\001\00__DEV'
     'C:\Users\Leonardo\Documents\WindowsPowerShell'
+    'C:\Program Files\Blender Foundation\Blender 5.2\5.2\scripts\startup'
 )
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $results = foreach ($root in $roots) {

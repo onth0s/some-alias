@@ -26,7 +26,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
 | `gs` | `git status` |
-| `gsall` | Check git status of all repos under `00__DEV` |
+| `gsall` | Check git status of all repos under the tracked roots |
 | `codex` | Launch ollama codex model |
 | `uprof` | Reload `$PROFILE` |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
@@ -279,10 +279,11 @@ Shortcut for `ollama launch codex --model minimax-m3:cloud`.
 gsall
 ```
 
-Runs `check-repos.ps1`, which scans two roots — `00__DEV` and this repo
-(`Documents\WindowsPowerShell`) — recursively up to depth 3, and reports each
-git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules` and
-repos ignored by a parent repo are skipped. Prints a summary line
-(`N repos (X dirty, Y clean) - Zs`) followed by a table with the tracked file
-count per repo.
+Runs `check-repos.ps1`, which scans three roots — `00__DEV`, this repo
+(`Documents\WindowsPowerShell`), and the Blender startup scripts dir
+(`...\Blender 5.2\5.2\scripts\startup`) — recursively up to depth 3, and reports
+each git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules`
+and repos ignored by a parent repo (via that parent's `.gitignore`) are skipped.
+Prints a summary line (`N repos (X dirty, Y clean) - Zs`) followed by a table
+with the tracked file count per repo.
 
