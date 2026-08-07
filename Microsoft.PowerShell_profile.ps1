@@ -138,7 +138,7 @@ function global:yt {
         $Url = $null
     }
     if (-not $Url) {
-        $Url = (Get-Clipboard -Format Text -ErrorAction SilentlyContinue).Trim()
+        $Url = ("$(Get-Clipboard -Raw -ErrorAction SilentlyContinue)").Trim()
         if (-not $Url -or $Url -notmatch '^https?://') {
             Write-Error "No URL provided and clipboard does not contain a valid URL."
             return
@@ -164,7 +164,7 @@ function global:yt {
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
             $title = $parts[2].Trim()
-            $match = Get-ChildItem -Path . -Filter "*[$vidId]*" -ErrorAction SilentlyContinue
+            $match = Get-ChildItem -Path . -Filter "*$vidId*" -ErrorAction SilentlyContinue
             if ($match) {
                 $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             } else {
