@@ -263,12 +263,26 @@ Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function 
 
 ---
 
+### `codex` — Launch ollama codex model
+
+```powershell
+codex [<args>...]
+```
+
+Shortcut for `ollama launch codex --model minimax-m3:cloud`.
+
+---
+
 ### `gsall` — Check all repos
 
 ```powershell
 gsall
 ```
 
-Runs `check-repos.ps1`, which scans `00__DEV` (recursively, up to depth 3) and
-reports each git repo's status as `CLEAN` or `DIRTY`.
+Runs `check-repos.ps1`, which scans two roots — `00__DEV` and this repo
+(`Documents\WindowsPowerShell`) — recursively up to depth 3, and reports each
+git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules` and
+repos ignored by a parent repo are skipped. Prints a summary line
+(`N repos (X dirty, Y clean) - Zs`) followed by a table with the tracked file
+count per repo.
 
