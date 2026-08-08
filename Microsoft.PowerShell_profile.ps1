@@ -288,6 +288,7 @@ function global:xxx { exit }
 function global:upkey {
     Stop-Process -Name "AutoHotkey*" -Force -ErrorAction SilentlyContinue
     Start-Sleep -Milliseconds 300
+    & python "C:\Users\Leonardo\001\00__DEV\zz - VAR\AutoHotkey\merge.py"
     Start-Process "C:\Users\Leonardo\001\00__DEV\zz - VAR\AutoHotkey\STD_HotKeys.ahk"
 }
 
