@@ -19,7 +19,11 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `gp` | Copy a path (arg or cwd) to clipboard |
 | `ConvertFrom-ClipboardPath` | Internal helper: normalize path text |
 | `Resolve-PathString` | Internal helper: resolve a path string to a full path |
+| `Resolve-GotoUrl` | Internal helper: classify a `goto` target as URL or search |
+| `Save-GotoStore` | Internal helper: write the goto alias store |
+| `Find-GotoAlias` | Internal helper: exact-match lookup in the goto alias store |
 | `op` | Launch opencode |
+| `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
 | `sf` | `sempath find` |
 | `sg` | `sempath get` (or `sempath <args>`) |
 | `HH` | `hermes gateway run -v` |
@@ -147,6 +151,49 @@ op [<args>...]
 ```
 
 Shortcut for launching `opencode`.
+
+---
+
+### `goto` — Open URL, Google search, or URL aliases
+
+```powershell
+goto <url-or-search> [-a <NAME> | --add-alias <NAME>]
+                     [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+```
+
+A smarter browser `start`: detects whether the argument is a URL or a search
+string.
+
+- **URL** — scheme-URLs (`https://…`) open as-is; `www.…`, bare domains
+  (`google.com`, `reddit.com/r/pics`), and `localhost`/IP addresses get the
+  appropriate scheme prepended.
+- **String** — anything else (e.g. `goto how to make omelete`) opens a Google
+  search for the text. Quotes optional.
+- **No args / `-h` / `--help`** — prints usage help.
+- **`-a <NAME>` / `--add-alias <NAME>`** — opens the target *and* saves it as a
+  URL alias. Later, `goto <NAME>` opens the saved URL directly. Names are
+  case-sensitive (letters, digits, `-`, `_`); `goto X` and `goto x` are
+  distinct aliases, and re-using an existing name asks for confirmation before
+  overwriting.
+- **`-d <NAME>` / `--del-alias <NAME>`** — deletes a saved alias after
+  confirmation.
+- **`-ls` / `--list-alias`** — lists all saved aliases (`name -> url`).
+
+Aliases persist in `$HOME\.goto-aliases.json` (a JSON `name -> url` map, created
+on first use). A template with the format is committed as
+`goto-aliases.example.json`.
+
+#### Examples
+
+```powershell
+goto google.com                                      # opens https://google.com
+goto localhost:3000                                  # opens http://localhost:3000
+goto how to make omelete                             # Google search
+goto onth0s.github.io/markdown-viewer -a MD          # opens + saves alias MD
+goto MD                                              # opens the saved URL
+goto -ls                                             # list aliases
+goto -d MD                                           # delete alias MD
+```
 
 ---
 

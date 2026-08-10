@@ -1,0 +1,4 @@
+{
+  "_comment": "goto alias store (name -> url). Names are case-sensitive: 'X' and 'x' are different aliases. The live file is $HOME\\.goto-aliases.json and is created on first use.",
+  "MD": "https://onth0s.github.io/markdown-viewer"
+}

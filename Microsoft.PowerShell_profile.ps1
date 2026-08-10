@@ -210,6 +210,204 @@ function global:sg {
 }
 $env:HOME = $env:USERPROFILE
 function global:op { opencode @args }
+function global:Resolve-GotoUrl {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Query
+    )
+    if ($Query -match '^\w+://') {
+        return $Query
+    } elseif ($Query -match '^www\.') {
+        return "https://$Query"
+    } elseif ($Query -match '^localhost(:\d+)?(/[^\s]*)?$' -or $Query -match '^\d{1,3}(\.\d{1,3}){3}(:\d+)?(/[^\s]*)?$') {
+        return "http://$Query"
+    } elseif ($Query -match '^[\w][\w.-]*\.\w{2,}(:\d+)?(/[^\s]*)?$') {
+        return "https://$Query"
+    }
+    return $null
+}
+
+function global:Save-GotoStore {
+    param(
+        [Parameter(Position = 0)]
+        [string]$StorePath,
+        [Parameter(Position = 1)]
+        [object]$Aliases
+    )
+    $sorted = [pscustomobject]@{}
+    foreach ($prop in ($Aliases.PSObject.Properties | Where-Object { $_.Name -notlike '_*' } | Sort-Object { $_.Name.ToLowerInvariant() })) {
+        $sorted | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value
+    }
+    $sorted | ConvertTo-Json | Set-Content -LiteralPath $StorePath -Encoding utf8
+}
+
+function global:Find-GotoAlias {
+    param(
+        [Parameter(Position = 0)]
+        [object]$Aliases,
+        [Parameter(Position = 1)]
+        [string]$Name
+    )
+    $Aliases.PSObject.Properties | Where-Object { $_.Name -ceq $Name } | Select-Object -First 1
+}
+
+function global:goto {
+    param(
+        [switch]$d,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [string[]]$Rest
+    )
+    $help = @'
+goto <url-or-search> [-a <NAME> | --add-alias <NAME>]
+                     [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+
+  goto google.com          open a URL in the browser
+  goto localhost:3000      open a local host/port
+  goto how to make omelete
+                           Google-search the text (quotes optional)
+  goto onth0s.github.io/markdown-viewer -a MD
+                           open it and save the target as alias 'MD'
+  goto MD                  open a previously saved alias
+
+Options:
+  -h, --help               show this help
+  -a, --add-alias <NAME>   save an alias for the target
+  -d, --del-alias <NAME>   delete a saved alias
+  -ls, --list-alias        list saved aliases
+'@
+    $aName = $null
+    $dName = $null
+    $list = $false
+    $tokens = @()
+    $i = 0
+    while ($i -lt $Rest.Count) {
+        $tok = $Rest[$i]
+        if ($tok -in @('-a', '--add-alias')) {
+            if ($i + 1 -lt $Rest.Count) {
+                if ($dName -or $list) { Write-Error "goto: cannot combine --add-alias with --del-alias/--list-alias."; return }
+                $aName = $Rest[$i + 1]
+                $i += 2
+                continue
+            }
+            Write-Error "goto: --add-alias requires a name."
+            return
+        } elseif ($tok -in @('-d', '--del-alias')) {
+            if ($i + 1 -lt $Rest.Count) {
+                if ($aName -or $list) { Write-Error "goto: cannot combine --del-alias with --add-alias/--list-alias."; return }
+                $dName = $Rest[$i + 1]
+                $i += 2
+                continue
+            }
+            Write-Error "goto: --del-alias requires a name."
+            return
+        } elseif ($tok -in @('-ls', '--list-alias')) {
+            if ($aName -or $dName) { Write-Error "goto: cannot combine --list-alias with --add-alias/--del-alias."; return }
+            $list = $true
+            $i++
+            continue
+        }
+        $tokens += $tok
+        $i++
+    }
+    if ($d) {
+        if ($aName -or $list) { Write-Error "goto: cannot combine --del-alias with --add-alias/--list-alias."; return }
+        if ($tokens.Count -eq 0) { Write-Error "goto: --del-alias requires a name."; return }
+        $dName = $tokens[0]
+        $tokens = @($tokens | Select-Object -Skip 1)
+    }
+    $q = ($tokens | Where-Object { $_ }) -join ' '
+    if ($q -in @('-h', '--help')) { Write-Host $help -ForegroundColor DarkGray; return }
+    if (-not $q -and -not ($aName -or $dName -or $list)) { Write-Host $help -ForegroundColor DarkGray; return }
+    if ($list -and $q) { Write-Error "goto: --list-alias takes no target."; return }
+    if ($aName -and -not $q) { Write-Error "goto: --add-alias requires a target."; return }
+    if ($dName -and $q) { Write-Error "goto: --del-alias does not take a target."; return }
+    foreach ($n in @($aName, $dName)) {
+        if ($n -and $n -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') {
+            Write-Error "goto: invalid alias name '$n' (use letters, digits, - and _)."
+            return
+        }
+    }
+
+    $storePath = Join-Path $HOME '.goto-aliases.json'
+    $aliases = $null
+    if (Test-Path -LiteralPath $storePath) {
+        try {
+            $raw = Get-Content -LiteralPath $storePath -Raw
+            if ($raw) { $aliases = $raw | ConvertFrom-Json }
+        } catch { $aliases = $null }
+    }
+    if ($null -eq $aliases) { $aliases = [pscustomobject]@{} }
+
+    if ($list) {
+        $props = @($aliases.PSObject.Properties | Where-Object { $_.Name -notlike '_*' } | Sort-Object { $_.Name.ToLowerInvariant() })
+        if ($props.Count -eq 0) {
+            Write-Host "no aliases saved" -ForegroundColor DarkGray
+        } else {
+            foreach ($p in $props) {
+                Write-Host ("{0,-20}" -f $p.Name) -ForegroundColor Cyan -NoNewline
+                Write-Host $p.Value -ForegroundColor DarkGray
+            }
+        }
+        return
+    }
+
+    if ($dName) {
+        $hit = Find-GotoAlias $aliases $dName
+        if (-not $hit) {
+            Write-Host "no alias '$dName'" -ForegroundColor Yellow
+            return
+        }
+        $old = $hit.Value
+        Write-Host "Alias '$($hit.Name)' -> $old" -ForegroundColor DarkGray
+        $resp = Read-Host "Delete? (Y/n)"
+        if ("$resp".Trim() -ieq 'n') { return }
+        $null = $aliases.PSObject.Properties.Remove($hit.Name)
+        Save-GotoStore $storePath $aliases
+        Write-Host "removed alias $($hit.Name) (was $old)" -ForegroundColor Green
+        return
+    }
+
+    if (-not $aName -and $tokens.Count -eq 1) {
+        $hit = Find-GotoAlias $aliases $q
+        if ($hit) {
+            Write-Host "goto: $($hit.Value)" -ForegroundColor Green
+            Start-Process $hit.Value
+            return
+        }
+    }
+
+    $url = Resolve-GotoUrl $q
+    $isSearch = $false
+    if (-not $url) {
+        $isSearch = $true
+        $url = "https://www.google.com/search?q=$([uri]::EscapeDataString($q))"
+    }
+
+    if ($aName) {
+        $hit = Find-GotoAlias $aliases $aName
+        if ($hit) {
+            Write-Host "Alias '$aName' already exists:" -ForegroundColor Yellow
+            Write-Host "  old: $($hit.Value)" -ForegroundColor DarkGray
+            Write-Host "  new: $url" -ForegroundColor DarkGray
+            $resp = Read-Host "Overwrite? (Y/n)"
+            if ("$resp".Trim() -ieq 'n') { return }
+            $null = $aliases.PSObject.Properties.Remove($hit.Name)
+        }
+        $aliases | Add-Member -NotePropertyName $aName -NotePropertyValue $url -Force
+        Save-GotoStore $storePath $aliases
+        Write-Host "alias $aName -> $url" -ForegroundColor Green
+        Start-Process $url
+        return
+    }
+
+    if ($isSearch) {
+        Write-Host "searching: $q" -ForegroundColor Cyan -NoNewline
+        Write-Host " -> $url" -ForegroundColor DarkGray
+    } else {
+        Write-Host "goto: $url" -ForegroundColor Green
+    }
+    Start-Process $url
+}
 function global:ow {
     param(
         [Parameter(Position = 0)]
