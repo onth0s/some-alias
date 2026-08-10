@@ -25,6 +25,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `HH` | `hermes gateway run -v` |
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
+| `ls` | GNU-style flags for `Get-ChildItem` (`-a -l -t -S -X -r -R`) |
 | `gs` | `git status` |
 | `gsall` | Check git status of all repos under the tracked roots |
 | `codex` | Launch ollama codex model |
@@ -178,6 +179,32 @@ alias [<name>]
 Looks up any alias, function, or cmdlet and shows its definition. With no
 arguments, lists all aliases. Works as a replacement for `Get-Alias` which
 only finds aliases, not functions.
+
+---
+
+### `ls` — GNU-style listing flags
+
+```powershell
+ls [-a] [-l] [-t] [-S] [-X] [-r] [-R] [<path>...]
+```
+
+Shadow of the built-in `ls` alias (`Get-ChildItem`). With no flags it behaves
+exactly like plain `Get-ChildItem`; any unrecognized argument (e.g. `-Force`,
+`-Filter *.txt`) is passed straight through. Short flags can be combined into
+one token (`ls -ltr`).
+
+| Flag | Meaning |
+|------|---------|
+| `-a` | Include hidden/system files (`-Force`) |
+| `-l` | Long listing (`Mode LastWriteTime Length Name`) |
+| `-t` | Sort by last-write time, newest first |
+| `-S` | Sort by size, largest first |
+| `-X` | Sort by extension, then name |
+| `-r` | Reverse the sort order |
+| `-R` | Recurse into subdirectories |
+
+Directories are grouped first whenever sorting is applied; `-r` reverses the
+sort within each group.
 
 ---
 

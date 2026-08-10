@@ -247,6 +247,106 @@ function global:ow {
 }
 function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 Set-Alias -Name c -Value cls -Option AllScope -Force
+# GNU-style ls flags: -a -l -t -S -X -r -R (combined tokens like -ltr supported).
+# Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.
+if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
+
+function global:ls {
+    $named    = @{}
+    $paths    = [System.Collections.Generic.List[string]]::new()
+    $long     = $false
+    $sortTime = $false
+    $sortSize = $false
+    $sortExt  = $false
+    $reverse  = $false
+
+    $valueParams  = @('Path','LiteralPath','Filter','Include','Exclude','Depth','Attributes','ErrorAction','WarningAction','InformationAction','ProgressAction','ErrorVariable','WarningVariable','InformationVariable','OutVariable','OutBuffer','PipelineVariable')
+    $switchParams = @('Recurse','Force','Name','FollowSymlink','Directory','File','Hidden','ReadOnly','System','Verbose','Debug')
+    $allParams    = @($valueParams + $switchParams)
+
+    $i = 0
+    $tokens = @($args)
+    while ($i -lt $tokens.Count) {
+        $tok = $tokens[$i]
+        if ($tok.Length -gt 1 -and $tok[0] -eq '-') {
+            $chars = $tok.Substring(1).ToCharArray()
+            $pure = $true
+            foreach ($ch in $chars) {
+                if ($ch -notin [char[]]'altSXrR') { $pure = $false; break }
+            }
+            if ($pure) {
+                foreach ($ch in $chars) {
+                    switch -CaseSensitive ($ch) {
+                        'a' { $named['Force'] = $true }
+                        'l' { $long = $true }
+                        't' { $sortTime = $true }
+                        'S' { $sortSize = $true }
+                        'X' { $sortExt = $true }
+                        'r' { $reverse = $true }
+                        'R' { $named['Recurse'] = $true }
+                    }
+                }
+                $i++
+                continue
+            }
+
+            $name = $tok.TrimStart('-')
+            if ($name -notin $valueParams -and $name -notin $switchParams) {
+                $hits = @($allParams | Where-Object { $_.StartsWith($name, [System.StringComparison]::OrdinalIgnoreCase) })
+                if ($hits.Count -eq 1) { $name = $hits[0] }
+            }
+            if ($name -in $valueParams) {
+                if ($i + 1 -lt $tokens.Count) {
+                    $val = $tokens[$i + 1]
+                    if ($named.ContainsKey($name)) { $named[$name] = @($named[$name]) + $val }
+                    else { $named[$name] = $val }
+                    $i += 2
+                    continue
+                }
+            } elseif ($name -in $switchParams) {
+                $named[$name] = $true
+                $i++
+                continue
+            }
+        }
+        $paths.Add($tok)
+        $i++
+    }
+
+    if ($paths.Count -gt 0) {
+        if ($named.ContainsKey('Path')) { $named['Path'] = @($named['Path']) + @($paths) }
+        elseif ($named.ContainsKey('LiteralPath')) { $named['LiteralPath'] = @($named['LiteralPath']) + @($paths) }
+        else { $named['Path'] = @($paths) }
+    }
+
+    $items = Get-ChildItem @named
+    $sorting = $sortTime -or $sortSize -or $sortExt -or $reverse
+
+    if (-not $sorting -and -not $long) {
+        $items
+        return
+    }
+
+    $spec = [System.Collections.Generic.List[object]]::new()
+    $spec.Add(@{ Expression = { -not $_.PSIsContainer }; Ascending = $true })
+    if ($sortTime) {
+        $spec.Add(@{ Expression = 'LastWriteTime'; Ascending = $reverse })
+    } elseif ($sortSize) {
+        $spec.Add(@{ Expression = 'Length'; Ascending = $reverse })
+    } elseif ($sortExt) {
+        $spec.Add(@{ Expression = 'Extension'; Ascending = -not $reverse })
+        $spec.Add(@{ Expression = 'Name'; Ascending = -not $reverse })
+    } else {
+        $spec.Add(@{ Expression = 'Name'; Ascending = -not $reverse })
+    }
+
+    $sorted = $items | Sort-Object $spec
+    if ($long) {
+        $sorted | Format-Table Mode, LastWriteTime, Length, Name -AutoSize
+    } else {
+        $sorted
+    }
+}
 function global:tree { npx tree-node-cli -I 'node_modules|.next' @args }
 function global:gs { git status @args }
 function global:gsall { & "C:\Users\Leonardo\Documents\WindowsPowerShell\check-repos.ps1" @args }
