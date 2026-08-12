@@ -42,7 +42,24 @@ function global:Resolve-PathString {
     return (Join-Path (Get-Location).Path $Path)
 }
 
-function global:uprof { . "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1" }
+function global:uprof {
+    $profilePath = "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+    if (Test-Path -LiteralPath $profilePath) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($profilePath, [ref]$null, [ref]$null)
+        $definedFuncs = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+            ForEach-Object { $_.Name -replace '^global:', '' }
+
+        if ($global:__profile_functions) {
+            foreach ($func in $global:__profile_functions) {
+                if ($func -notin $definedFuncs -and (Test-Path "Function:\$func")) {
+                    Remove-Item "Function:\$func" -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        $global:__profile_functions = $definedFuncs
+    }
+    . "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
+}
 function global:gp {
     $target = if ($args.Count -gt 0) { $args -join ' ' } else { Get-Location }
     $target = $target | ConvertFrom-ClipboardPath -Basic
@@ -443,7 +460,6 @@ function global:ow {
         pm2 restart openwhispr openwhispr-preview
     }
 }
-function global:codex { ollama launch codex --model minimax-m3:cloud @args }
 Set-Alias -Name c -Value cls -Option AllScope -Force
 # GNU-style ls flags: -a -l -t -S -X -r -R (combined tokens like -ltr supported).
 # Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.
