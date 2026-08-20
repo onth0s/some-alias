@@ -591,7 +591,7 @@ All standard Get-ChildItem parameters (-Filter, -Depth, etc.) are supported.
         $sorted
     }
 }
-function global:tree { npx tree-node-cli -I 'node_modules|.next' @args }
+function global:tree { npx tree-node-cli -I 'node_modules|.next' @args 2>$null }
 function global:gs { git status @args }
 function global:gsall { & "C:\Users\Leonardo\Documents\WindowsPowerShell\check-repos.ps1" @args }
 function global:alias {
