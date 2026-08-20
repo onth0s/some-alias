@@ -364,6 +364,7 @@ tree [<args>...]
 ```
 
 Renders a directory tree via `tree-node-cli`, ignoring `node_modules` and `.next`.
+npm notice noise from `npx` is suppressed.
 
 ---
 
