@@ -235,7 +235,7 @@ only finds aliases, not functions.
 ### `ls` — GNU-style listing flags
 
 ```powershell
-ls [-a] [-l] [-t] [-S] [-X] [-r] [-R] [<path>...]
+ls [-a] [-l] [-t] [-S] [-X] [-r] [-R] [-? | --help] [<path>...]
 ```
 
 Shadow of the built-in `ls` alias (`Get-ChildItem`). With no flags it behaves
@@ -252,6 +252,7 @@ one token (`ls -ltr`).
 | `-X` | Sort by extension, then name |
 | `-r` | Reverse the sort order |
 | `-R` | Recurse into subdirectories |
+| `-?`, `--help` | Show usage help |
 
 Directories are grouped first whenever sorting is applied; `-r` reverses the
 sort within each group.

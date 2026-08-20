@@ -491,6 +491,27 @@ function global:ls {
     $tokens = @($args)
     while ($i -lt $tokens.Count) {
         $tok = $tokens[$i]
+        if ($tok -in @('--help', '-?')) {
+            Write-Host @'
+Usage: ls [OPTIONS] [PATH...]
+
+GNU-style flags (combinable, e.g. -lat):
+
+  -a, --all          Show hidden items (Force)
+  -l                 Long listing (Mode, LastWriteTime, Length, Name)
+  -t                 Sort by LastWriteTime
+  -S                 Sort by file size
+  -X                 Sort by extension
+  -r                 Reverse sort order
+  -R, --recursive    Recursive (pass -Depth N separately for a limit)
+
+  -?, --help         Show this help
+
+Without flags, behaves identically to Get-ChildItem.
+All standard Get-ChildItem parameters (-Filter, -Depth, etc.) are supported.
+'@
+            return
+        }
         if ($tok.Length -gt 1 -and $tok[0] -eq '-') {
             $chars = $tok.Substring(1).ToCharArray()
             $pure = $true
