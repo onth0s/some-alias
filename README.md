@@ -30,10 +30,11 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
 | `ls` | GNU-style flags for `Get-ChildItem` (`-a -l -t -S -X -r -R`) |
+| `cd` / `cd..` / `cd~` / `cd\` | Path navigation — feeds session + Waypoint persistent history |
+| `cdh` | Display session history (list of recent directories) |
 | `gs` | `git status` |
 | `gsall` | Check git status of all repos under the tracked roots |
-| `codex` | Launch ollama codex model |
-| `uprof` | Reload `$PROFILE` |
+| `uprof` | Reload `$PROFILE` (auto-cleans removed functions) |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
@@ -49,7 +50,7 @@ scanning and intelligent skip logic.
 #### Usage
 
 ```powershell
-yt [<url>] [-v | -video] [-s | -song] [<N>]
+yt [<url>] [-c <cookies-file>] [-v | -video] [-s | -song] [<N>]
 ```
 
 #### Modes
@@ -58,6 +59,7 @@ yt [<url>] [-v | -video] [-s | -song] [<N>]
 |------|------|-----------|
 | **Song (default)** | *(none)* or `-s` / `-song` | Extracts audio, saves as MP3 with embedded thumbnail + metadata |
 | **Video** | `-v` / `-video` | Downloads best video + best audio muxed together |
+| **Cookies** | `-c <file>` | Pass a cookies file to yt-dlp (absolute or relative path) |
 
 Both modes always embed thumbnail and metadata.
 
@@ -88,6 +90,7 @@ items of a playlist before downloading:
 yt "https://youtube.com/playlist?list=..."    # download all as MP3
 yt -v "https://youtube.com/watch?v=..."        # download single video
 yt 10                                            # scan first 10 of URL from clipboard
+yt "https://youtube.com/..." -c cookies.txt     # pass cookies file
 yt "https://youtube.com/watch?v=..." -v -song   # explicit song mode (redundant)
 ```
 
@@ -262,6 +265,42 @@ uprof
 ```
 
 Dot-sources `$PROFILE` to reload all functions without restarting PowerShell.
+Before re-sourcing, it parses the profile's AST and removes any functions
+that no longer exist, so stale definitions don't linger after edits.
+
+---
+
+### `cd` / `cd..` / `cd~` / `cd\` — Path navigation with history
+
+```powershell
+cd [<path>]          # cd alone goes to ~
+cd -                 # toggle to the previous directory
+cd..                 # parent directory (no space)
+cd~                  # home directory (no space)
+cd\                  # root directory (no space)
+```
+
+Built-in `cd`/`chdir` are overridden so every directory change feeds a two-layer
+history:
+
+- **Session history** — in-memory list (last 50 directories), viewable via `cdh`.
+  `cd -` toggles to the most recent previous entry.
+- **Persistent stack** — written to Waypoint on every jump. A fresh tab can pick
+  up where the last tab left off with `wp h` or `wp u 0`.
+
+`cd..`, `cd~`, and `cd\` are single tokens that PowerShell resolves directly to
+`Set-Location`, bypassing the `cd` alias. They are defined as functions so they
+route through the same history mechanism instead of being silent.
+
+---
+
+### `cdh` — Session history
+
+```powershell
+cdh
+```
+
+Prints the in-memory directory history (same list that `cd -` pulls from).
 
 ---
 
@@ -337,15 +376,7 @@ Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function 
 
 ---
 
-### `codex` — Launch ollama codex model
 
-```powershell
-codex [<args>...]
-```
-
-Shortcut for `ollama launch codex --model minimax-m3:cloud`.
-
----
 
 ### `gsall` — Check all repos
 

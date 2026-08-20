@@ -143,6 +143,7 @@ function global:yt {
         [string]$Url,
         [switch]$s,
         [switch]$song,
+        [string]$c,
         [switch]$v,
         [switch]$video,
         [Parameter(Position = 1)]
@@ -170,6 +171,14 @@ function global:yt {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
     $argsList += @("--embed-thumbnail", "--embed-metadata")
+    if ($c) {
+        $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
+        if (Test-Path -LiteralPath $cookieFile) {
+            $argsList += @("--cookies", $cookieFile)
+        } else {
+            Write-Warning "yt: cookies file not found: $cookieFile"
+        }
+    }
     if ($N -gt 0) {
         Write-Host "`nScanning playlist (first $N items)..." -ForegroundColor DarkGray
         $entries = & $ytdlp --flat-playlist --print "%(playlist_index)s|||%(id)s|||%(title)s" -I ":$N" $Url 2>$null
