@@ -106,6 +106,9 @@ Reads a file/directory path from clipboard, resolves it, and `cd`s into it.
 If a file path is detected, navigates to its parent directory. Brackets `[]`
 in paths are handled literally (no wildcard issues).
 
+If the path doesn't exist, prints a warning (yellow) and `cd`s to the nearest
+existing ancestor directory instead; errors only if none exists.
+
 ---
 
 ### `stp` — Show path from clipboard in Explorer
@@ -115,7 +118,8 @@ stp
 ```
 
 Same path resolution as `gotp`, but opens the target in Windows Explorer instead
-of navigating in the terminal.
+of navigating in the terminal. Missing paths warn (yellow) and open the nearest
+existing ancestor directory.
 
 ---
 
@@ -127,7 +131,8 @@ gp [<path>]
 
 Copies the given path to clipboard. If no argument provided, copies the current
 working directory. Strips surrounding quotes, backticks, and trailing file-size
-annotations before copying.
+annotations before copying. If the path doesn't exist, warns (yellow) and copies
+the nearest existing ancestor directory instead; errors only if none exists.
 
 ---
 
@@ -144,6 +149,10 @@ called directly.
 - `Resolve-PathString` — resolves a path string to a full path: kept as-is when
   already rooted, resolved via `Resolve-Path` when it exists, otherwise joined
   to the current directory.
+- `Get-NearestExistingPath` — walks up a nonexistent path until it finds
+  something that exists (`C:\a\b\c` → `C:\a` when only `C:\a` exists); returns
+  `$null` if nothing exists before the drive root. Fallback engine behind the
+  missing-path handling in `gp`, `gotp`, and `stp`.
 
 ---
 
@@ -325,6 +334,7 @@ opf [<path>]
 Opens a file or directory. With no argument, tries the clipboard: strips ANSI
 escape codes, terminal prefixes, and trailing file-size/metadata annotations,
 and tries single lines plus space-/newline-joined candidates before giving up.
+No fallback: if nothing valid is found, it fails with an error.
 
 ---
 

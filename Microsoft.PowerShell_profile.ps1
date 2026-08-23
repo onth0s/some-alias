@@ -42,6 +42,25 @@ function global:Resolve-PathString {
     return (Join-Path (Get-Location).Path $Path)
 }
 
+function global:Get-NearestExistingPath {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Path
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $null }
+    $current = $Path.Trim()
+    while ($current) {
+        $probe = $current.TrimEnd('\', '/')
+        if ($probe -match '^[A-Za-z]:$') { $probe += '\' }
+        if ($probe) { $current = $probe }
+        if (Test-Path -LiteralPath $current) { return $current }
+        $parent = Split-Path -Parent $current
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+    return $null
+}
+
 function global:uprof {
     $profilePath = "$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1"
     if (Test-Path -LiteralPath $profilePath) {
@@ -69,7 +88,15 @@ function global:gp {
         Write-Host "Path copied to clipboard:" -ForegroundColor DarkGray -NoNewline
         Write-Host "`n$($resolved.Path)" -ForegroundColor Blue
     } else {
-        Write-Error "Not found: $target"
+        $nearest = Get-NearestExistingPath $target
+        if ($nearest) {
+            Write-Host "Not found: $target" -ForegroundColor Yellow
+            $nearest | Set-Clipboard
+            Write-Host "Path copied to clipboard:" -ForegroundColor DarkGray -NoNewline
+            Write-Host "`n$($nearest)" -ForegroundColor Blue
+        } else {
+            Write-Error "Not found: $target"
+        }
     }
 }
 function global:gotp {
@@ -81,7 +108,14 @@ function global:gotp {
             Set-Location -LiteralPath $path
             Write-Host "cd to: $path" -ForegroundColor Green
         } else {
-            Write-Error "Not found: $path"
+            $nearest = Get-NearestExistingPath $path
+            if ($nearest) {
+                Write-Host "Not found: $path" -ForegroundColor Yellow
+                Set-Location -LiteralPath $nearest
+                Write-Host "cd to: $nearest" -ForegroundColor Green
+            } else {
+                Write-Error "Not found: $path"
+            }
         }
     } else {
         Write-Error "Clipboard is empty"
@@ -96,7 +130,14 @@ function global:stp {
             Start-Process explorer.exe $path
             Write-Host "opened: $path" -ForegroundColor Green
         } else {
-            Write-Error "Not found: $path"
+            $nearest = Get-NearestExistingPath $path
+            if ($nearest) {
+                Write-Host "Not found: $path" -ForegroundColor Yellow
+                Start-Process explorer.exe $nearest
+                Write-Host "opened: $nearest" -ForegroundColor Green
+            } else {
+                Write-Error "Not found: $path"
+            }
         }
     } else {
         Write-Error "Clipboard is empty"
