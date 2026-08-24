@@ -29,7 +29,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `HH` | `hermes gateway run -v` |
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
-| `ls` | GNU-style flags for `Get-ChildItem` (`-a -l -t -S -X -r -R`) |
+| `ls` | GNU-style flags for `Get-ChildItem` (`-a -l -t -S -X -r -R`; unique-prefix abbrevs) |
 | `cd` / `cd..` / `cd~` / `cd\` | Path navigation — feeds session + Waypoint persistent history |
 | `cdh` | Display session history (list of recent directories) |
 | `gs` | `git status` |
@@ -253,9 +253,16 @@ ls [-a] [-l] [-t] [-S] [-X] [-r] [-R] [-? | --help] [<path>...]
 ```
 
 Shadow of the built-in `ls` alias (`Get-ChildItem`). With no flags it behaves
-exactly like plain `Get-ChildItem`; any unrecognized argument (e.g. `-Force`,
-`-Filter *.txt`) is passed straight through. Short flags can be combined into
-one token (`ls -ltr`).
+exactly like plain `Get-ChildItem`. Short flags can be combined into one token
+(`ls -ltr`). Arguments are classified as:
+
+1. **Short-flag combos** — every char in `a l t S X r R`, handled natively
+   (see table below).
+2. **`Get-ChildItem` parameters** — full names, or any unique prefix
+   (`-fil *.txt` → `-Filter`, `-rec` → `-Recurse`, `-h` → `-Hidden`);
+   value-taking parameters consume the next token (`-Depth 2`).
+3. **Anything else** — treated as a literal path, so unknown long flags like
+   `--all` fail with a "Cannot find path '--all'" error.
 
 | Flag | Meaning |
 |------|---------|
@@ -268,8 +275,14 @@ one token (`ls -ltr`).
 | `-R` | Recurse into subdirectories |
 | `-?`, `--help` | Show usage help |
 
+If several sort flags are given, precedence is `-t`, then `-S`, then `-X`;
+with none, items sort by name.
+
 Directories are grouped first whenever sorting is applied; `-r` reverses the
 sort within each group.
+
+> **Gotcha:** `-h` is not help — it abbreviates to `-Hidden` and lists hidden
+> items *only*. Use `-?` / `--help` for usage. `Get-Help ls` also works.
 
 ---
 

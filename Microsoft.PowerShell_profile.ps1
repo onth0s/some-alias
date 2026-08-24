@@ -536,6 +536,35 @@ Set-Alias -Name c -Value cls -Option AllScope -Force
 # Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.
 if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
 
+<#
+.SYNOPSIS
+    GNU-style ls wrapper around Get-ChildItem.
+
+.DESCRIPTION
+    Shadows the built-in ls alias. With no flags it behaves exactly like plain
+    Get-ChildItem. Short flags from the set a l t S X r R combine into single
+    tokens (-lat). Any sort groups directories first; -r reverses within each
+    group. When several sort flags are given, precedence is -t, then -S, then
+    -X.
+
+    Tokens are classified as: (1) pure short-flag combos; (2) Get-ChildItem
+    parameter names or unique prefixes (-fil -> -Filter), where value-taking
+    parameters consume the next token; (3) everything else, treated as a
+    literal path. Beware: -h is not help - it expands to -Hidden and lists
+    hidden items only. Use -? or --help for the usage text.
+
+.EXAMPLE
+    PS> ls -lat
+    Long listing of all items (hidden included), newest first, dirs first.
+
+.EXAMPLE
+    PS> ls -fil *.txt
+    Lists *.txt entries in the current directory via Get-ChildItem's -Filter.
+
+.NOTES
+    Part of the personal PowerShell profile. Extended documentation lives in
+    this repo's README.md under "ls".
+#>
 function global:ls {
     $named    = @{}
     $paths    = [System.Collections.Generic.List[string]]::new()
@@ -559,18 +588,21 @@ Usage: ls [OPTIONS] [PATH...]
 
 GNU-style flags (combinable, e.g. -lat):
 
-  -a, --all          Show hidden items (Force)
+  -a                 Show hidden items (Force)
   -l                 Long listing (Mode, LastWriteTime, Length, Name)
   -t                 Sort by LastWriteTime
   -S                 Sort by file size
   -X                 Sort by extension
   -r                 Reverse sort order
-  -R, --recursive    Recursive (pass -Depth N separately for a limit)
+  -R                 Recursive (pass -Depth N separately for a limit)
 
   -?, --help         Show this help
 
 Without flags, behaves identically to Get-ChildItem.
-All standard Get-ChildItem parameters (-Filter, -Depth, etc.) are supported.
+Get-ChildItem parameter names may be abbreviated to a unique prefix
+(-fil -> -Filter, -rec -> -Recurse); value-taking ones consume the next token.
+Note: -h expands to -Hidden (hidden items only) -- use -? or --help instead.
+Anything unrecognized is treated as a path.
 '@
             return
         }
