@@ -169,8 +169,8 @@ Shortcut for launching `opencode`.
 ### `goto` — Open URL, Google search, or URL aliases
 
 ```powershell
-goto <url-or-search> [-a <NAME> | --add-alias <NAME>]
-                     [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+goto [<url-or-search>] [-a <NAME> | --add-alias <NAME>]
+                        [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
 ```
 
 A smarter browser `start`: detects whether the argument is a URL or a search
@@ -181,7 +181,9 @@ string.
   appropriate scheme prepended.
 - **String** — anything else (e.g. `goto how to make omelete`) opens a Google
   search for the text. Quotes optional.
-- **No args / `-h` / `--help`** — prints usage help.
+- **No args** — opens the clipboard contents (whitespace-collapsed and
+  trimmed): a URL, an alias name, or search text. Errors on an empty
+  clipboard. `-h` / `--help` prints usage help.
 - **`-a <NAME>` / `--add-alias <NAME>`** — opens the target *and* saves it as a
   URL alias. Later, `goto <NAME>` opens the saved URL directly. Names are
   case-sensitive (letters, digits, `-`, `_`); `goto X` and `goto x` are
@@ -203,6 +205,8 @@ goto localhost:3000                                  # opens http://localhost:30
 goto how to make omelete                             # Google search
 goto onth0s.github.io/markdown-viewer -a MD          # opens + saves alias MD
 goto MD                                              # opens the saved URL
+goto                                                    # opens the clipboard URL/text
+goto -a MD                                            # opens clipboard URL + saves alias MD
 goto -ls                                             # list aliases
 goto -d MD                                           # delete alias MD
 ```

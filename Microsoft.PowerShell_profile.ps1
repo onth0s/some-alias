@@ -325,20 +325,23 @@ function global:goto {
         [string[]]$Rest
     )
     $help = @'
-goto <url-or-search> [-a <NAME> | --add-alias <NAME>]
-                     [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+goto [<url-or-search>] [-a <NAME> | --add-alias <NAME>]
+                       [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
 
+  goto                     open the URL/text in the clipboard
   goto google.com          open a URL in the browser
   goto localhost:3000      open a local host/port
   goto how to make omelete
                            Google-search the text (quotes optional)
   goto onth0s.github.io/markdown-viewer -a MD
                            open it and save the target as alias 'MD'
+  goto -a MD               same, with the clipboard as the target
   goto MD                  open a previously saved alias
 
 Options:
   -h, --help               show this help
-  -a, --add-alias <NAME>   save an alias for the target
+  -a, --add-alias <NAME>   save an alias for the target (or the clipboard
+                           when no target is given)
   -d, --del-alias <NAME>   delete a saved alias
   -ls, --list-alias        list saved aliases
 '@
@@ -384,10 +387,17 @@ Options:
     }
     $q = ($tokens | Where-Object { $_ }) -join ' '
     if ($q -in @('-h', '--help')) { Write-Host $help -ForegroundColor DarkGray; return }
-    if (-not $q -and -not ($aName -or $dName -or $list)) { Write-Host $help -ForegroundColor DarkGray; return }
     if ($list -and $q) { Write-Error "goto: --list-alias takes no target."; return }
-    if ($aName -and -not $q) { Write-Error "goto: --add-alias requires a target."; return }
     if ($dName -and $q) { Write-Error "goto: --del-alias does not take a target."; return }
+
+    $src = 'args'
+    if (-not $q -and -not $list) {
+        $clip = Get-Clipboard -Raw
+        if ($clip) { $clip = ($clip -replace '\s+', ' ').Trim() }
+        if (-not $clip) { Write-Error "goto: clipboard is empty."; return }
+        $q = $clip
+        $src = 'clipboard'
+    }
     foreach ($n in @($aName, $dName)) {
         if ($n -and $n -notmatch '^[A-Za-z0-9][A-Za-z0-9_-]*$') {
             Write-Error "goto: invalid alias name '$n' (use letters, digits, - and _)."
@@ -434,20 +444,23 @@ Options:
         return
     }
 
-    if (-not $aName -and $tokens.Count -eq 1) {
+    $viaAlias = $false
+    $url = $null
+    if (-not $aName -and $q -notmatch '\s') {
         $hit = Find-GotoAlias $aliases $q
         if ($hit) {
-            Write-Host "goto: $($hit.Value)" -ForegroundColor Green
-            Start-Process $hit.Value
-            return
+            $url = $hit.Value
+            $viaAlias = $true
         }
     }
 
-    $url = Resolve-GotoUrl $q
     $isSearch = $false
-    if (-not $url) {
-        $isSearch = $true
-        $url = "https://www.google.com/search?q=$([uri]::EscapeDataString($q))"
+    if (-not $viaAlias) {
+        $url = Resolve-GotoUrl $q
+        if (-not $url) {
+            $isSearch = $true
+            $url = "https://www.google.com/search?q=$([uri]::EscapeDataString($q))"
+        }
     }
 
     if ($aName) {
@@ -462,16 +475,24 @@ Options:
         }
         $aliases | Add-Member -NotePropertyName $aName -NotePropertyValue $url -Force
         Save-GotoStore $storePath $aliases
-        Write-Host "alias $aName -> $url" -ForegroundColor Green
-        Start-Process $url
-        return
+        Write-Host "alias saved: $aName" -ForegroundColor Cyan -NoNewline
+        Write-Host " -> $url" -ForegroundColor Green
     }
 
-    if ($isSearch) {
-        Write-Host "searching: $q" -ForegroundColor Cyan -NoNewline
+    if ($viaAlias) {
+        Write-Host "opening $q" -ForegroundColor Cyan -NoNewline
+        Write-Host " -> $url" -ForegroundColor Green
+    } elseif ($isSearch) {
+        Write-Host "searching $q" -ForegroundColor Cyan -NoNewline
         Write-Host " -> $url" -ForegroundColor DarkGray
+    } elseif ($src -eq 'clipboard') {
+        Write-Host "opening (clipboard)" -ForegroundColor Cyan -NoNewline
+        Write-Host " $url" -ForegroundColor Green
+    } elseif ($url -ne $q) {
+        Write-Host "opening $q" -ForegroundColor Cyan -NoNewline
+        Write-Host " -> $url" -ForegroundColor Green
     } else {
-        Write-Host "goto: $url" -ForegroundColor Green
+        Write-Host "opening $url" -ForegroundColor Green
     }
     Start-Process $url
 }
