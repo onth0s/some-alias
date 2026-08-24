@@ -446,7 +446,7 @@ Options:
 
     $viaAlias = $false
     $url = $null
-    if (-not $aName -and $q -notmatch '\s') {
+    if (-not $aName -and $src -eq 'args' -and $q -notmatch '\s') {
         $hit = Find-GotoAlias $aliases $q
         if ($hit) {
             $url = $hit.Value

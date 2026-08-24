@@ -182,8 +182,9 @@ string.
 - **String** — anything else (e.g. `goto how to make omelete`) opens a Google
   search for the text. Quotes optional.
 - **No args** — opens the clipboard contents (whitespace-collapsed and
-  trimmed): a URL, an alias name, or search text. Errors on an empty
-  clipboard. `-h` / `--help` prints usage help.
+  trimmed): treated as a URL or search text only — clipboard text is never
+  resolved as an alias name (aliases must be typed on the command line).
+  Errors on an empty clipboard. `-h` / `--help` prints usage help.
 - **`-a <NAME>` / `--add-alias <NAME>`** — opens the target *and* saves it as a
   URL alias. Later, `goto <NAME>` opens the saved URL directly. Names are
   case-sensitive (letters, digits, `-`, `_`); `goto X` and `goto x` are
