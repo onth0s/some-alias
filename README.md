@@ -35,7 +35,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `gs` | `git status` |
 | `gsall` | Check git status of all repos under the tracked roots |
 | `uprof` | Reload `$PROFILE` (auto-cleans removed functions) |
-| `upkey` | Restart AutoHotkey (stop all AHK processes, relaunch `STD_HotKeys.ahk`) |
+| `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
 | `xxx` | Exit the session |
@@ -414,9 +414,9 @@ Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function 
 gsall
 ```
 
-Runs `check-repos.ps1`, which scans three roots — `00__DEV`, this repo
-(`Documents\WindowsPowerShell`), and the Blender startup scripts dir
-(`...\Blender 5.2\5.2\scripts\startup`) — recursively up to depth 3, and reports
+Runs `check-repos.ps1`, which scans four roots — `00__DEV`, this repo
+(`Documents\WindowsPowerShell`), the Blender startup scripts dir
+(`...\Blender 5.2\5.2\scripts\startup`), and `001\TXT\Nothing, really` — recursively up to depth 3, and reports
 each git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules`
 and repos ignored by a parent repo (via that parent's `.gitignore`) are skipped.
 Prints a summary line (`N repos (X dirty, Y clean) - Zs`) followed by a table
