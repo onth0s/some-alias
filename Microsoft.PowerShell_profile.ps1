@@ -405,7 +405,7 @@ Options:
         }
     }
 
-    $storePath = Join-Path $HOME '.goto-aliases.json'
+    $storePath = Join-Path $HOME '.config' 'goto-aliases.json'
     $aliases = $null
     if (Test-Path -LiteralPath $storePath) {
         try {

@@ -194,8 +194,8 @@ string.
   confirmation.
 - **`-ls` / `--list-alias`** — lists all saved aliases (`name -> url`).
 
-Aliases persist in `$HOME\.goto-aliases.json` (a JSON `name -> url` map, created
-on first use). A template with the format is committed as
+Aliases persist in `$HOME\.config\goto-aliases.json` (a JSON `name -> url` map,
+created on first use). A template with the format is committed as
 `goto-aliases.example.json`.
 
 #### Examples
