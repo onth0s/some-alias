@@ -212,6 +212,11 @@ function global:yt {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
     $argsList += @("--embed-thumbnail", "--embed-metadata")
+    $cwdCookie = Get-ChildItem -Path . -Filter "*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cwdCookie -and -not $c) {
+        $argsList += @("--cookies", $cwdCookie.FullName)
+        Write-Host "yt: using cookies from $($cwdCookie.Name)" -ForegroundColor DarkCyan
+    }
     if ($c) {
         $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
         if (Test-Path -LiteralPath $cookieFile) {
@@ -269,7 +274,23 @@ function global:yt {
         Write-Host "[SONG]" -ForegroundColor Magenta -NoNewline
     }
     Write-Host " $Url" -ForegroundColor White
-    & $ytdlp @argsList
+    function Invoke-Dl { & $ytdlp @argsList }
+    Invoke-Dl
+    $cookieInUse = ($c) -or $cwdCookie
+    if ($LASTEXITCODE -ne 0 -and $cookieInUse) {
+        $attempts = 0
+        while ($attempts -lt 3) {
+            Write-Host "`nDownload failed - cookies likely stale." -ForegroundColor Yellow
+            $r = Read-Host "Open the link to re-export cookies? (Y/n)"
+            if ($r -ne 'n') { Start-Process $Url }
+            $r2 = Read-Host "Exported new cookies? Try again? (y/N)"
+            if ($r2 -ne 'y') { break }
+            $attempts++
+            Invoke-Dl
+            if ($LASTEXITCODE -eq 0) { Write-Host "Download OK." -ForegroundColor Green; break }
+        }
+        if ($attempts -ge 3) { Write-Host "Gave up after 3 attempts - refresh cookies manually and rerun yt." -ForegroundColor Red }
+    }
 }
 function global:sf { sempath find @args }
 function global:sg {
