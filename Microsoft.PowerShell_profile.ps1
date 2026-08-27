@@ -212,18 +212,30 @@ function global:yt {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
     $argsList += @("--embed-thumbnail", "--embed-metadata")
-    $cwdCookie = Get-ChildItem -Path . -Filter "*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($cwdCookie -and -not $c) {
-        $argsList += @("--cookies", $cwdCookie.FullName)
-        Write-Host "yt: using cookies from $($cwdCookie.Name)" -ForegroundColor DarkCyan
-    }
-    if ($c) {
-        $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
-        if (Test-Path -LiteralPath $cookieFile) {
-            $argsList += @("--cookies", $cookieFile)
-        } else {
+    $cookieStore = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\cookies'
+    $hostName = try { ([uri]$Url).Host } catch { $null }
+    function Get-UsedCookie {
+        if ($c) {
+            $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
+            if (Test-Path -LiteralPath $cookieFile) { return $cookieFile }
             Write-Warning "yt: cookies file not found: $cookieFile"
+            return $null
         }
+        if ($hostName) {
+            $cwdCookie = Get-ChildItem -Path . -Filter "${hostName}_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($cwdCookie) { return $cwdCookie.FullName }
+        }
+        $cwdCookie = Get-ChildItem -Path . -Filter "*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cwdCookie) { return $cwdCookie.FullName }
+        if ($hostName) {
+            $hostParts = $hostName -split '\.'
+            for ($i = 0; $i -lt ($hostParts.Count - 1); $i++) {
+                $candHost = ($hostParts[$i..($hostParts.Count - 1)] -join '.')
+                $check = Join-Path $cookieStore "${candHost}_cookies.txt"
+                if (Test-Path -LiteralPath $check) { return $check }
+            }
+        }
+        return $null
     }
     if ($N -gt 0) {
         Write-Host "`nScanning playlist (first $N items)..." -ForegroundColor DarkGray
@@ -274,22 +286,38 @@ function global:yt {
         Write-Host "[SONG]" -ForegroundColor Magenta -NoNewline
     }
     Write-Host " $Url" -ForegroundColor White
-    function Invoke-Dl { & $ytdlp @argsList }
+    function Invoke-Dl {
+        $script:usedCookie = Get-UsedCookie
+        $dlArgs = @($argsList)
+        if ($script:usedCookie) {
+            $dlArgs += @("--cookies", $script:usedCookie)
+            Write-Host "yt: using cookies from $(Split-Path $script:usedCookie -Leaf)" -ForegroundColor DarkCyan
+        } else {
+            Write-Host "yt: no cookies found for $hostName - unauthenticated; 403 likely" -ForegroundColor Yellow
+        }
+        & $ytdlp @dlArgs
+    }
     Invoke-Dl
-    $cookieInUse = ($c) -or $cwdCookie
-    if ($LASTEXITCODE -ne 0 -and $cookieInUse) {
+    if ($LASTEXITCODE -ne 0) {
         $attempts = 0
         while ($attempts -lt 3) {
-            Write-Host "`nDownload failed - cookies likely stale." -ForegroundColor Yellow
-            $r = Read-Host "Open the link to re-export cookies? (Y/n)"
+            Write-Host "`nDownload failed - YouTube likely blocked it." -ForegroundColor Yellow
+            $r = Read-Host "Open the link to export/re-export cookies? (Y/n)"
             if ($r -ne 'n') { Start-Process $Url }
-            $r2 = Read-Host "Exported new cookies? Try again? (y/N)"
+            $r2 = Read-Host "Exported cookies? Try again? (y/N)"
             if ($r2 -ne 'y') { break }
             $attempts++
             Invoke-Dl
             if ($LASTEXITCODE -eq 0) { Write-Host "Download OK." -ForegroundColor Green; break }
         }
-        if ($attempts -ge 3) { Write-Host "Gave up after 3 attempts - refresh cookies manually and rerun yt." -ForegroundColor Red }
+        if ($attempts -ge 3) { Write-Host "Gave up after 3 attempts - save cookies in the download folder or pass -c, then rerun yt." -ForegroundColor Red }
+    }
+    if ($LASTEXITCODE -eq 0 -and $script:usedCookie -and -not $script:usedCookie.StartsWith($cookieStore, [System.StringComparison]::OrdinalIgnoreCase)) {
+        $storeHost = $hostName
+        if (-not $storeHost) { $storeHost = ($script:usedCookie | Split-Path -Leaf) -replace '_cookies\.txt$', '' }
+        New-Item -ItemType Directory -Path $cookieStore -Force | Out-Null
+        Copy-Item -LiteralPath $script:usedCookie -Destination (Join-Path $cookieStore "${storeHost}_cookies.txt") -Force
+        Write-Host "yt: stored cookies for $storeHost" -ForegroundColor DarkCyan
     }
 }
 function global:sf { sempath find @args }

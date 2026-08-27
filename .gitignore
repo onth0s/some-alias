@@ -2,3 +2,5 @@
 *.sublime-*
 .vs/
 .vscode/
+cookies/
+*_cookies.txt

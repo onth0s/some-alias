@@ -13,3 +13,8 @@
   `git check-ignore`). Do NOT claim it "picks up any repo" or that it ignores
   `.gitignore` — verify against the script and actual repos before asserting
   what it will or won't report.
+- **COOKIE FILES ARE SECRETS.** Files under `cookies\` and any `*_cookies.txt`
+  contain session tokens. NEVER stage, commit, push, echo, or paste their
+  contents, and never reference them in issues, diffs, or logs. The `yt`
+  function stores per-site cookies in `cookies\<host>_cookies.txt`; the folder
+  is git-ignored and must stay that way.
