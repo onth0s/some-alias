@@ -20,6 +20,17 @@ function global:ConvertFrom-ClipboardPath {
                 $out = $out -replace '^(?:[^\w\s\:\\/]|✓|Success:?\s*Found\s*match:?)+\s*'
             }
             $out = $out -replace '^~', "$env:USERPROFILE"
+            $out = [System.Environment]::ExpandEnvironmentVariables($out)
+            $out = [regex]::Replace($out, '\$env:([A-Za-z_][A-Za-z0-9_]*)', {
+                param($m)
+                $name = $m.Groups[1].Value
+                $val = [System.Environment]::GetEnvironmentVariable($name, 'Process')
+                if ($null -eq $val) { $val = [System.Environment]::GetEnvironmentVariable($name, 'User') }
+                if ($null -eq $val) { $val = [System.Environment]::GetEnvironmentVariable($name, 'Machine') }
+                if ($null -eq $val) { return $m.Value }
+                return $val
+            })
+            $out = $out -replace '\$HOME\b', "$env:USERPROFILE"
             $out = $out -replace '\s+$'
         }
         if ($IncludeBytes) {
