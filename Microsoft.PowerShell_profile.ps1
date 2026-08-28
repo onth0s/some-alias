@@ -211,7 +211,7 @@ function global:yt {
     } else {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
-    $argsList += @("--embed-thumbnail", "--embed-metadata")
+    $argsList += @("--embed-thumbnail", "--embed-metadata", "--abort-on-error")
     $cookieStore = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\cookies'
     $hostName = try { ([uri]$Url).Host } catch { $null }
     function Get-UsedCookie {

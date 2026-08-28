@@ -61,7 +61,22 @@ yt [<url>] [-c <cookies-file>] [-v | -video] [-s | -song] [<N>]
 | **Video** | `-v` / `-video` | Downloads best video + best audio muxed together |
 | **Cookies** | `-c <file>` | Pass a cookies file to yt-dlp (absolute or relative path) |
 
-Both modes always embed thumbnail and metadata.
+Both modes always embed thumbnail and metadata. Downloads run with
+`--abort-on-error` — a failing item stops the batch immediately instead of
+grinding through the rest.
+
+#### Cookies
+
+`yt` auto-detects a cookies file in this order: the `-c <file>` flag, a
+`<host>_cookies.txt` in the current directory, any `*_cookies.txt` in the
+current directory, then a matching `cookies\<host>_cookies.txt` in
+`Documents\WindowsPowerShell`. If none is found it warns
+`unauthorized; 403 likely` and continues.
+
+If a download fails (e.g. YouTube/TikTok blocking unauthenticated requests),
+`yt` prompts to open the link so you can export/re-export a cookies file, then
+retries — up to 3 attempts. After a successful authenticated download it stores
+the used cookies in `cookies\<host>_cookies.txt` for next time.
 
 #### URL input
 
