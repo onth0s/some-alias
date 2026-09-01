@@ -591,6 +591,39 @@ function global:ow {
         pm2 restart openwhispr openwhispr-preview
     }
 }
+
+# Shadow the ollama.exe executable so serve/kill/restart are CWD-safe: they never
+# inherit (or hold) the caller's working directory, so Ollama can't lock a stray
+# folder. Every other subcommand passes through to the binary by absolute path.
+function global:ollama {
+    $exe = "C:\Users\Leonardo\AppData\Local\Programs\Ollama\ollama.exe"
+    $cmd = if ($args.Count -gt 0) { [string]$args[0] } else { '' }
+    switch ($cmd) {
+        'serve' {
+            $running = Get-Process -Name ollama -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe }
+            if ($running) {
+                Write-Host "ollama already running" -ForegroundColor Yellow
+            } else {
+                Start-Process $exe -ArgumentList 'serve' -WorkingDirectory $HOME -WindowStyle Hidden
+                Write-Host "ollama serve started from $HOME" -ForegroundColor Green
+            }
+            return
+        }
+        'kill' {
+            Stop-Process -Name ollama -Force -ErrorAction SilentlyContinue
+            Write-Host "ollama killed" -ForegroundColor Green
+            return
+        }
+        'restart' {
+            Stop-Process -Name ollama -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Milliseconds 500
+            Start-Process $exe -ArgumentList 'serve' -WorkingDirectory $HOME -WindowStyle Hidden
+            Write-Host "ollama restarted from $HOME" -ForegroundColor Green
+            return
+        }
+    }
+    & $exe @args
+}
 Set-Alias -Name c -Value cls -Option AllScope -Force
 # GNU-style ls flags: -a -l -t -S -X -r -R (combined tokens like -ltr supported).
 # Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.

@@ -1,4 +1,4 @@
-# some-alias
+  # some-alias
 
 Personal PowerShell profile — custom aliases and utility functions for daily use.
 
@@ -37,6 +37,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `uprof` | Reload `$PROFILE` (auto-cleans removed functions) |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
+| `ollama` | CWD-safe wrapper for the `ollama` CLI (`serve`/`kill`/`restart`) |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
 | `xxx` | Exit the session |
 
@@ -397,6 +398,32 @@ Checks the pm2 status of `openwhispr` and `openwhispr-preview`:
 - **Mixed** → restart both
 
 `ow nuke` (and `ow kill`) stops and deletes both services entirely.
+
+---
+
+### `ollama` — CWD-safe wrapper
+
+```powershell
+ollama serve      # start the server from $HOME if not already running
+ollama kill       # stop all ollama processes
+ollama restart    # kill, then relaunch from $HOME
+ollama <cmd>...   # anything else passes through to the real ollama binary
+```
+
+Shadows the `ollama.exe` executable so the Ollama server never inherits (and thus
+never holds) the caller's working directory — which previously let it lock a stray
+folder (e.g. a `test\` dir it was launched from) and block deletion with
+`The process cannot access the file ... because it is being used by another process`.
+
+- **`serve`** — starts the server from `$HOME` (a fixed neutral CWD). If an
+  `ollama` process is already running it just reports that instead of spawning a
+  duplicate.
+- **`kill`** — stops all `ollama` processes, releasing any folder they had locked.
+- **`restart`** — `kill`, then relaunch `serve` from `$HOME`.
+
+All other invocations (`ollama list`, `ollama run <model>`, `ollama pull`, …) pass
+straight through to `C:\Users\Leonardo\AppData\Local\Programs\Ollama\ollama.exe`
+by absolute path, so there's no recursion into the wrapper.
 
 ---
 
