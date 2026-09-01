@@ -37,7 +37,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `uprof` | Reload `$PROFILE` (auto-cleans removed functions) |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
-| `ollama` | CWD-safe wrapper for the `ollama` CLI (`serve`/`kill`/`restart`) |
+| `ollama` | CWD-safe wrapper for the `ollama` CLI (`serve`/`kill`/`restart`/`status`) |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
 | `xxx` | Exit the session |
 
@@ -407,6 +407,7 @@ Checks the pm2 status of `openwhispr` and `openwhispr-preview`:
 ollama serve      # start the server from $HOME if not already running
 ollama kill       # stop all ollama processes
 ollama restart    # kill, then relaunch from $HOME
+ollama status     # report whether ollama is running and responding
 ollama <cmd>...   # anything else passes through to the real ollama binary
 ```
 
@@ -420,6 +421,8 @@ folder (e.g. a `test\` dir it was launched from) and block deletion with
   duplicate.
 - **`kill`** — stops all `ollama` processes, releasing any folder they had locked.
 - **`restart`** — `kill`, then relaunch `serve` from `$HOME`.
+- **`status`** — reports whether an `ollama` process is running and, if so, whether
+  the server responds on `localhost:11434` (shows the loaded model count).
 
 All other invocations (`ollama list`, `ollama run <model>`, `ollama pull`, …) pass
 straight through to `C:\Users\Leonardo\AppData\Local\Programs\Ollama\ollama.exe`

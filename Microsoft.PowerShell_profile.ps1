@@ -609,6 +609,21 @@ function global:ollama {
             }
             return
         }
+        'status' {
+            $p = Get-Process -Name ollama -ErrorAction SilentlyContinue | Select-Object -First 1
+            if (-not $p) {
+                Write-Host "ollama not running" -ForegroundColor Yellow
+                return
+            }
+            Write-Host "ollama running (pid $($p.Id))" -ForegroundColor Green
+            try {
+                $count = (Invoke-RestMethod -Uri "http://localhost:11434/api/tags" -TimeoutSec 3).models.Count
+                Write-Host "server responding: $count models" -ForegroundColor Cyan
+            } catch {
+                Write-Host "process up but server not responding" -ForegroundColor Yellow
+            }
+            return
+        }
         'kill' {
             Stop-Process -Name ollama -Force -ErrorAction SilentlyContinue
             Write-Host "ollama killed" -ForegroundColor Green
