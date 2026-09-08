@@ -37,6 +37,7 @@ $sw.Stop()
 $count = @($results).Count
 $dirtyCount = @($results | Where-Object Dirty).Count
 "{0} repos ({1} dirty, {2} clean) - {3:0.0}s" -f $count, $dirtyCount, ($count - $dirtyCount), $sw.Elapsed.TotalSeconds
+$maxRepoLen = [Math]::Max(4, (($results | ForEach-Object { $_.Repo.Length } | Measure-Object -Maximum).Maximum))
 $first = $true
 for ($i = 0; $i -lt $roots.Count; $i++) {
     $group = @($results | Where-Object RootIdx -eq $i)
@@ -50,5 +51,7 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
             Status = if ($_.Dirty) { "$($PSStyle.Foreground.Red)DIRTY$($PSStyle.Reset)" } else { "$($PSStyle.Foreground.Green)CLEAN$($PSStyle.Reset)" }
             Files  = $_.Files
         }
-    } | Format-Table -AutoSize
+    } | Format-Table @{ Label = 'Repo'; Expression = 'Repo'; Width = $maxRepoLen },
+                     @{ Label = 'Status'; Expression = 'Status'; Width = 7 },
+                     @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
