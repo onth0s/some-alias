@@ -55,3 +55,4 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
                      @{ Label = 'Status'; Expression = 'Status'; Width = 7 },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
+if ($dirtyCount -eq 0) { "`nall gucci." }
