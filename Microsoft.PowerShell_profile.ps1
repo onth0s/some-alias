@@ -642,6 +642,16 @@ function global:ollama {
 Set-Alias -Name c -Value cls -Option AllScope -Force
 # GNU-style ls flags: -a -l -t -S -X -r -R (combined tokens like -ltr supported).
 # Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.
+#
+# Replace the default FileInfo/DirectoryInfo console table with one showing a
+# human-readable Size column next to the raw byte Length column (unpadded
+# M/d/yyyy H:mm timestamps). Formatting-only: the objects on the pipeline
+# still carry raw byte Length, so piping is unaffected.
+# Guarded so repeated profile reloads (uprof) don't stack duplicate views.
+if (-not $global:__FileSystemSizeFormatLoaded) {
+    Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
+    $global:__FileSystemSizeFormatLoaded = $true
+}
 if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
 
 <#
@@ -650,7 +660,10 @@ if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
 
 .DESCRIPTION
     Shadows the built-in ls alias. With no flags it behaves exactly like plain
-    Get-ChildItem. Short flags from the set a l t S X r R combine into single
+    Get-ChildItem, except filesystem items render with a human-readable Size
+    column next to the raw byte Length column, and timestamps show as
+    M/d/yyyy H:mm (no seconds, no zero-padded hour). Short
+    flags from the set a l t S X r R combine into single
     tokens (-lat). Any sort groups directories first; -r reverses within each
     group. When several sort flags are given, precedence is -t, then -S, then
     -X.
@@ -660,6 +673,11 @@ if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
     parameters consume the next token; (3) everything else, treated as a
     literal path. Beware: -h is not help - it expands to -Hidden and lists
     hidden items only. Use -? or --help for the usage text.
+
+    Every FileInfo/DirectoryInfo item gets a human-readable Size NoteProperty
+    (e.g. "7.07 GB"); the raw byte Length is kept alongside it for sorting and
+    piping, and is displayed as its own column. Directories have no Length and
+    show blank Size/Length columns.
 
 .EXAMPLE
     PS> ls -lat
@@ -673,6 +691,17 @@ if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
     Part of the personal PowerShell profile. Extended documentation lives in
     this repo's README.md under "ls".
 #>
+function global:Format-FileSize {
+    param([Nullable[int64]]$Bytes)
+    if ($null -eq $Bytes) { return '' }
+    if ($Bytes -lt 1024) { return "$Bytes B" }
+    $units = 'B', 'KB', 'MB', 'GB', 'TB'
+    $i = 0
+    $v = [double]$Bytes
+    while ($v -ge 1024 -and $i -lt $units.Count - 1) { $v /= 1024; $i++ }
+    '{0:N2} {1}' -f $v, $units[$i]
+}
+
 function global:ls {
     $named    = @{}
     $paths    = [System.Collections.Generic.List[string]]::new()
@@ -697,7 +726,7 @@ Usage: ls [OPTIONS] [PATH...]
 GNU-style flags (combinable, e.g. -lat):
 
   -a                 Show hidden items (Force)
-  -l                 Long listing (Mode, LastWriteTime, Length, Name)
+  -l                 Long listing (Mode, LastWriteTime, Size, Length, Name)
   -t                 Sort by LastWriteTime
   -S                 Sort by file size
   -X                 Sort by extension
@@ -706,7 +735,8 @@ GNU-style flags (combinable, e.g. -lat):
 
   -?, --help         Show this help
 
-Without flags, behaves identically to Get-ChildItem.
+Without flags, behaves identically to Get-ChildItem (but filesystem items
+render with a human-readable Size column next to raw Length).
 Get-ChildItem parameter names may be abbreviated to a unique prefix
 (-fil -> -Filter, -rec -> -Recurse); value-taking ones consume the next token.
 Note: -h expands to -Hidden (hidden items only) -- use -? or --help instead.
@@ -765,7 +795,15 @@ Anything unrecognized is treated as a path.
         else { $named['Path'] = @($paths) }
     }
 
-    $items = Get-ChildItem @named
+    $items = Get-ChildItem @named | ForEach-Object {
+        if ($_ -is [System.IO.FileInfo] -or $_ -is [System.IO.DirectoryInfo]) {
+            # Directories report Length 1 via the filesystem provider; show blank.
+            $size = if ($_.PSIsContainer) { '' } else { Format-FileSize $_.Length }
+            $_ | Add-Member -NotePropertyName Size -NotePropertyValue $size -PassThru
+        } else {
+            $_
+        }
+    }
     $sorting = $sortTime -or $sortSize -or $sortExt -or $reverse
 
     if (-not $sorting -and -not $long) {
@@ -788,7 +826,13 @@ Anything unrecognized is treated as a path.
 
     $sorted = $items | Sort-Object $spec
     if ($long) {
-        $sorted | Format-Table Mode, LastWriteTime, Length, Name -AutoSize
+        $longTime = { '{0:M/d/yyyy H:mm}' -f $_.LastWriteTime }
+        $longSize = { '{0,10}' -f $_.Size }
+        $longLen  = { if ($_.PSIsContainer) { '' } else { $_.Length } }
+        $sorted | Format-Table Mode,
+            @{ Name = 'LastWriteTime'; Expression = $longTime },
+            @{ Name = 'Size'; Expression = $longSize },
+            @{ Name = 'Length'; Expression = $longLen }, Name -AutoSize
     } else {
         $sorted
     }

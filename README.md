@@ -269,7 +269,9 @@ ls [-a] [-l] [-t] [-S] [-X] [-r] [-R] [-? | --help] [<path>...]
 ```
 
 Shadow of the built-in `ls` alias (`Get-ChildItem`). With no flags it behaves
-exactly like plain `Get-ChildItem`. Short flags can be combined into one token
+exactly like plain `Get-ChildItem` — except that filesystem items render with
+a human-readable `Size` column next to the raw byte `Length` column (see
+below). Short flags can be combined into one token
 (`ls -ltr`). Arguments are classified as:
 
 1. **Short-flag combos** — every char in `a l t S X r R`, handled natively
@@ -283,7 +285,7 @@ exactly like plain `Get-ChildItem`. Short flags can be combined into one token
 | Flag | Meaning |
 |------|---------|
 | `-a` | Include hidden/system files (`-Force`) |
-| `-l` | Long listing (`Mode LastWriteTime Length Name`) |
+| `-l` | Long listing (`Mode LastWriteTime Size Length Name`) |
 | `-t` | Sort by last-write time, newest first |
 | `-S` | Sort by size, largest first |
 | `-X` | Sort by extension, then name |
@@ -296,6 +298,19 @@ with none, items sort by name.
 
 Directories are grouped first whenever sorting is applied; `-r` reverses the
 sort within each group.
+
+File listings show `Mode LastWriteTime Size Length Name`: a human-readable
+`Size` column (e.g. `7.07 GB`, two decimals; sub-KB files stay in bytes like
+`512 B`) next to the raw byte `Length` column, and timestamps as
+`M/d/yyyy H:mm` (no seconds, no zero-padded hour). Directories have no size
+and show blank `Size`/`Length` cells. `ls -S` still sorts on raw `Length`, and
+piping keeps working (`ls | ? Length -gt 1mb`) because the underlying objects
+are untouched.
+
+The same table is applied globally through `FileSystemSize.format.ps1xml`
+(loaded with `Update-FormatData`), so a bare `Get-ChildItem` / `dir` prints
+the same columns. It only changes console rendering — pipeline objects are
+untouched.
 
 > **Gotcha:** `-h` is not help — it abbreviates to `-Hidden` and lists hidden
 > items *only*. Use `-?` / `--help` for usage. `Get-Help ls` also works.

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default console table for files and directories: shows a human-readable
+  "Size" column (rendered by Format-FileSize from the profile) alongside the
+  raw byte "Length". Formatting-only: the objects on the pipeline still carry
+  the raw byte Length, so piping/scripting is unaffected.
+
+  Loaded by the profile via:
+    Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
+-->
+<Configuration>
+  <ViewDefinitions>
+    <View>
+      <Name>FileSystemInfo human-readable size</Name>
+      <ViewSelectedBy>
+        <TypeName>System.IO.FileInfo</TypeName>
+        <TypeName>System.IO.DirectoryInfo</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader>
+            <Label>Mode</Label>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>LastWriteTime</Label>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>Size</Label>
+            <Width>10</Width>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>Length</Label>
+          </TableColumnHeader>
+          <TableColumnHeader>
+            <Label>Name</Label>
+          </TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem>
+                <PropertyName>Mode</PropertyName>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>'{0:M/d/yyyy H:mm}' -f $_.LastWriteTime</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>if ($_.PSIsContainer) { '{0,10}' -f '' } else { '{0,10}' -f (Format-FileSize $_.Length) }</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <ScriptBlock>if ($_.PSIsContainer) { '' } else { $_.Length }</ScriptBlock>
+              </TableColumnItem>
+              <TableColumnItem>
+                <PropertyName>Name</PropertyName>
+              </TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+  </ViewDefinitions>
+</Configuration>
