@@ -302,7 +302,8 @@ sort within each group.
 File listings show `Mode LastWriteTime Size Length Name`: a human-readable
 `Size` column (e.g. `7.07 GB`, two decimals; sub-KB files stay in bytes like
 `512 B`) next to the raw byte `Length` column, and timestamps as
-`M/d/yyyy H:mm` (no seconds, no zero-padded hour). Directories have no size
+`MM/dd/yyyy HH:mm` (no seconds, everything zero-padded, e.g.
+`09/09/2026 22:58`). Directories have no size
 and show blank `Size`/`Length` cells. `ls -S` still sorts on raw `Length`, and
 piping keeps working (`ls | ? Length -gt 1mb`) because the underlying objects
 are untouched.

@@ -2,8 +2,10 @@
 <!--
   Default console table for files and directories: shows a human-readable
   "Size" column (rendered by Format-FileSize from the profile) alongside the
-  raw byte "Length". Formatting-only: the objects on the pipeline still carry
-  the raw byte Length, so piping/scripting is unaffected.
+  raw byte "Length". Timestamps are MM/dd/yyyy HH:mm (everything
+  zero-padded, no seconds); each cell is padded with a trailing space for a comfortable
+  gap between columns. Formatting-only: the objects on the pipeline still
+  carry the raw byte Length, so piping/scripting is unaffected.
 
   Loaded by the profile via:
     Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
@@ -26,7 +28,6 @@
           </TableColumnHeader>
           <TableColumnHeader>
             <Label>Size</Label>
-            <Width>10</Width>
           </TableColumnHeader>
           <TableColumnHeader>
             <Label>Length</Label>
@@ -39,16 +40,16 @@
           <TableRowEntry>
             <TableColumnItems>
               <TableColumnItem>
-                <PropertyName>Mode</PropertyName>
+                <ScriptBlock>"$($_.Mode) "</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
-                <ScriptBlock>'{0:M/d/yyyy H:mm}' -f $_.LastWriteTime</ScriptBlock>
+                <ScriptBlock>'{0:MM/dd/yyyy HH:mm} ' -f $_.LastWriteTime</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
-                <ScriptBlock>if ($_.PSIsContainer) { '{0,10}' -f '' } else { '{0,10}' -f (Format-FileSize $_.Length) }</ScriptBlock>
+                <ScriptBlock>if ($_.PSIsContainer) { '{0,10} ' -f '&lt;DIR&gt;' } else { '{0,10} ' -f (Format-FileSize $_.Length) }</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
-                <ScriptBlock>if ($_.PSIsContainer) { '' } else { $_.Length }</ScriptBlock>
+                <ScriptBlock>if ($_.PSIsContainer) { ' ' } else { "$($_.Length) " }</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
                 <PropertyName>Name</PropertyName>

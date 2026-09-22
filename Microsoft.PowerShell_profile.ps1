@@ -644,13 +644,19 @@ Set-Alias -Name c -Value cls -Option AllScope -Force
 # Shadow the built-in 'ls' alias (Get-ChildItem); no flags = exact same behavior.
 #
 # Replace the default FileInfo/DirectoryInfo console table with one showing a
-# human-readable Size column next to the raw byte Length column (unpadded
-# M/d/yyyy H:mm timestamps). Formatting-only: the objects on the pipeline
-# still carry raw byte Length, so piping is unaffected.
-# Guarded so repeated profile reloads (uprof) don't stack duplicate views.
-if (-not $global:__FileSystemSizeFormatLoaded) {
-    Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
-    $global:__FileSystemSizeFormatLoaded = $true
+# human-readable Size column next to the raw byte Length column (MM/dd/yyyy
+# HH:mm timestamps, zero-padded month/day/hour, no seconds). Formatting-only:
+# the objects on the pipeline still carry raw byte Length, so piping is
+# unaffected.
+# Reloads whenever the format file changes (so uprof picks up edits mid-session)
+# and skips reloads otherwise, so repeated reloads don't stack duplicate views.
+$fmtFile = Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml'
+if (Test-Path -LiteralPath $fmtFile) {
+    $fmtStamp = (Get-Item -LiteralPath $fmtFile).LastWriteTimeUtc.Ticks
+    if ($global:__FileSystemSizeFormatStamp -ne $fmtStamp) {
+        Update-FormatData -PrependPath $fmtFile
+        $global:__FileSystemSizeFormatStamp = $fmtStamp
+    }
 }
 if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
 
@@ -662,7 +668,7 @@ if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
     Shadows the built-in ls alias. With no flags it behaves exactly like plain
     Get-ChildItem, except filesystem items render with a human-readable Size
     column next to the raw byte Length column, and timestamps show as
-    M/d/yyyy H:mm (no seconds, no zero-padded hour). Short
+    MM/dd/yyyy HH:mm (no seconds, everything zero-padded). Short
     flags from the set a l t S X r R combine into single
     tokens (-lat). Any sort groups directories first; -r reverses within each
     group. When several sort flags are given, precedence is -t, then -S, then
@@ -826,13 +832,16 @@ Anything unrecognized is treated as a path.
 
     $sorted = $items | Sort-Object $spec
     if ($long) {
-        $longTime = { '{0:M/d/yyyy H:mm}' -f $_.LastWriteTime }
-        $longSize = { '{0,10}' -f $_.Size }
-        $longLen  = { if ($_.PSIsContainer) { '' } else { $_.Length } }
-        $sorted | Format-Table Mode,
-            @{ Name = 'LastWriteTime'; Expression = $longTime },
-            @{ Name = 'Size'; Expression = $longSize },
-            @{ Name = 'Length'; Expression = $longLen }, Name -AutoSize
+        $longTime = { '{0:MM/dd/yyyy HH:mm} ' -f $_.LastWriteTime }
+        $longSize = { if ($_.PSIsContainer) { '{0,10} ' -f '<DIR>' } else { '{0,10} ' -f $_.Size } }
+        $longLen  = { if ($_.PSIsContainer) { ' ' } else { "$($_.Length) " } }
+        $sorted | Format-Table -Property @(
+            @{ N = 'Mode'; E = { "$($_.Mode) " } },
+            @{ N = 'LastWriteTime'; E = $longTime },
+            @{ N = 'Size'; E = $longSize },
+            @{ N = 'Length'; E = $longLen },
+            'Name'
+        ) -AutoSize
     } else {
         $sorted
     }
