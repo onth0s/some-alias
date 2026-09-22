@@ -308,10 +308,15 @@ and show blank `Size`/`Length` cells. `ls -S` still sorts on raw `Length`, and
 piping keeps working (`ls | ? Length -gt 1mb`) because the underlying objects
 are untouched.
 
-The same table is applied globally through `FileSystemSize.format.ps1xml`
-(loaded with `Update-FormatData`), so a bare `Get-ChildItem` / `dir` prints
-the same columns. It only changes console rendering — pipeline objects are
-untouched.
+When `ls` output goes straight to the console it draws a fixed-width text
+table: every column has a constant width, numeric columns (`Size`, `Length`)
+and headers are right-aligned, and there are exactly two spaces between every
+column — in the header and in every row (`ls`, `ls -l`, `ls -S`, etc. all
+look identical). When piped or assigned, `ls` emits the raw decorated objects
+instead, and the `FileSystemSize.format.ps1xml` view
+(loaded with `Update-FormatData`) renders them — the same columns, so a bare
+`Get-ChildItem` / `dir` or an end-of-pipeline `Format-Table` prints the same
+shape. Rendering never alters the objects on the pipeline.
 
 > **Gotcha:** `-h` is not help — it abbreviates to `-Hidden` and lists hidden
 > items *only*. Use `-?` / `--help` for usage. `Get-Help ls` also works.

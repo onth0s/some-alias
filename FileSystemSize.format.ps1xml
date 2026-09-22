@@ -7,6 +7,11 @@
   gap between columns. Formatting-only: the objects on the pipeline still
   carry the raw byte Length, so piping/scripting is unaffected.
 
+  This is the fallback view (and the one Get-ChildItem/dir use). Plain `ls`
+  console output draws its own fixed-width table with exactly two spaces
+  between every column; this view stays for piped objects and raw
+  Get-ChildItem.
+
   Loaded by the profile via:
     Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
 -->
@@ -28,9 +33,11 @@
           </TableColumnHeader>
           <TableColumnHeader>
             <Label>Size</Label>
+            <Alignment>Right</Alignment>
           </TableColumnHeader>
           <TableColumnHeader>
             <Label>Length</Label>
+            <Alignment>Right</Alignment>
           </TableColumnHeader>
           <TableColumnHeader>
             <Label>Name</Label>
@@ -46,7 +53,7 @@
                 <ScriptBlock>'{0:MM/dd/yyyy HH:mm} ' -f $_.LastWriteTime</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
-                <ScriptBlock>if ($_.PSIsContainer) { '{0,10} ' -f '&lt;DIR&gt;' } else { '{0,10} ' -f (Format-FileSize $_.Length) }</ScriptBlock>
+                <ScriptBlock>if ($_.PSIsContainer) { '&lt;DIR&gt; ' } else { (Format-FileSize $_.Length) + ' ' }</ScriptBlock>
               </TableColumnItem>
               <TableColumnItem>
                 <ScriptBlock>if ($_.PSIsContainer) { ' ' } else { "$($_.Length) " }</ScriptBlock>

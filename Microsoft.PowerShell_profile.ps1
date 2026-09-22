@@ -648,6 +648,11 @@ Set-Alias -Name c -Value cls -Option AllScope -Force
 # HH:mm timestamps, zero-padded month/day/hour, no seconds). Formatting-only:
 # the objects on the pipeline still carry raw byte Length, so piping is
 # unaffected.
+#
+# Rendering: when ls output goes straight to the console it draws its own
+# fixed-width text table (Format-LsLines) with exactly two spaces between every
+# column; when piped or assigned it emits the raw decorated objects and the
+# ps1xml view below is the fallback (and applies to Get-ChildItem/dir too).
 # Reloads whenever the format file changes (so uprof picks up edits mid-session)
 # and skips reloads otherwise, so repeated reloads don't stack duplicate views.
 $fmtFile = Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml'
@@ -706,6 +711,35 @@ function global:Format-FileSize {
     $v = [double]$Bytes
     while ($v -ge 1024 -and $i -lt $units.Count - 1) { $v /= 1024; $i++ }
     '{0:N2} {1}' -f $v, $units[$i]
+}
+
+# Renders filesystem items as a fixed-width text table with EXACTLY two spaces
+# between every column — in the header AND in every data row. Every cell is
+# padded to its column's exact width (Mode 5, LastWriteTime 16, Size 9,
+# Length 10), so each column's text ends at the same x position; numeric
+# columns (Size, Length) and all headers are right-aligned so the 2-space
+# separator after them is constant. Size values float inside their column
+# (right-aligned numbers), but column boundaries and gaps never move.
+#
+# Used by ls ONLY when the output goes straight to the console (no pipeline):
+# piped/assigned output keeps emitting the raw decorated objects so filtering
+# and sorting on the byte Length keep working.
+function global:Format-LsLines {
+    param([object[]]$Items)
+    if ($Items -isnot [array]) { $Items = @($Items) }
+    if ($Items.Count -eq 0) { return }
+    $fs = @($Items | Where-Object { $_ -is [System.IO.FileInfo] -or $_ -is [System.IO.DirectoryInfo] })
+    if ($fs.Count -eq 0) { $Items; return }   # not filesystem items (e.g. ls -name) -> pass through
+
+    $headFmt = '{0,5}  {1,16}  {2,9}  {3,10}  {4}'
+    $rowFmt  = '{0,-5}  {1,-16}  {2,9}  {3,10}  {4}'
+    $headFmt -f 'Mode', 'LastWriteTime', 'Size', 'Length', 'Name'
+    $headFmt -f ('-' * 4), ('-' * 13), ('-' * 4), ('-' * 6), ('-' * 4)
+    foreach ($it in $Items) {
+        $size = if ($it.PSIsContainer) { '<DIR>' } else { Format-FileSize $it.Length }
+        $len  = if ($it.PSIsContainer) { '' } else { [string]$it.Length }
+        $rowFmt -f $it.Mode, ('{0:MM/dd/yyyy HH:mm}' -f $it.LastWriteTime), $size, $len, $it.Name
+    }
 }
 
 function global:ls {
@@ -831,20 +865,7 @@ Anything unrecognized is treated as a path.
     }
 
     $sorted = $items | Sort-Object $spec
-    if ($long) {
-        $longTime = { '{0:MM/dd/yyyy HH:mm} ' -f $_.LastWriteTime }
-        $longSize = { if ($_.PSIsContainer) { '{0,10} ' -f '<DIR>' } else { '{0,10} ' -f $_.Size } }
-        $longLen  = { if ($_.PSIsContainer) { ' ' } else { "$($_.Length) " } }
-        $sorted | Format-Table -Property @(
-            @{ N = 'Mode'; E = { "$($_.Mode) " } },
-            @{ N = 'LastWriteTime'; E = $longTime },
-            @{ N = 'Size'; E = $longSize },
-            @{ N = 'Length'; E = $longLen },
-            'Name'
-        ) -AutoSize
-    } else {
-        $sorted
-    }
+    $sorted
 }
 function global:tree { npx tree-node-cli -I 'node_modules|.next' @args 2>$null }
 function global:gs { git status @args }
