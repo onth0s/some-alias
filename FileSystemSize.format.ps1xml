@@ -26,17 +26,17 @@
       <TableControl>
         <TableHeaders>
           <TableColumnHeader>
-            <Label>Mode</Label>
+            <Label>Mode </Label>
           </TableColumnHeader>
           <TableColumnHeader>
-            <Label>LastWriteTime</Label>
+            <Label>LastWriteTime </Label>
           </TableColumnHeader>
           <TableColumnHeader>
-            <Label>Size</Label>
+            <Label>Size </Label>
             <Alignment>Right</Alignment>
           </TableColumnHeader>
           <TableColumnHeader>
-            <Label>Length</Label>
+            <Label>Length </Label>
             <Alignment>Right</Alignment>
           </TableColumnHeader>
           <TableColumnHeader>
