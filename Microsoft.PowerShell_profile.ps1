@@ -1010,9 +1010,84 @@ function global:wp {
 
 # End Waypoint block
 
+function Write-Text {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Position = 0, ValueFromPipeline = $true)]
+        [AllowEmptyString()]
+        [string[]]$Value,
 
+        [Parameter(Position = 1)]
+        [string]$Path,
 
+        [Alias('F')]
+        [switch]$Force
+    )
 
+    begin {
+        $lines = [System.Collections.Generic.List[string]]::new()
 
+        # Best-effort guess at whether a string looks like a file path.
+        $isPathLike = {
+            param([string]$s)
+            if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+            if ($s -match '^(?:[A-Za-z]:\\|\\\\)') { return $true }    # drive / UNC
+            if ($s.Contains('\') -or $s.Contains('/')) { return $true } # separator
+            if ($s -match '\.[A-Za-z0-9]{1,5}$') { return $true }       # extension
+            if ($s -eq '.' -or $s -eq '..') { return $true }            # cwd / parent
+            if (Test-Path -LiteralPath $s -ErrorAction SilentlyContinue) { return $true }
+            return $false
+        }
 
+        # Make 'wt <text> <path>' and 'wt <path> <text>' interchangeable.
+        # Content decides; quoting is irrelevant because PowerShell already
+        # unquotes the bound values. Swap only when the first positional
+        # looks like a path and the second does not. Never reorder
+        # explicitly named -Value / -Path bindings.
+        if (-not $MyInvocation.ExpectingInput -and $Path -and $Value.Count -eq 1 -and
+            $MyInvocation.Line -notmatch '(?i)(?<!\w)-[VP][A-Za-z]*') {
+            if ((& $isPathLike $Value[0]) -and -not (& $isPathLike $Path)) {
+                $temp  = $Value[0]
+                $Value[0] = $Path
+                $Path = $temp
+            }
+        }
+    }
 
+    process {
+        if ($null -ne $Value) {
+            foreach ($line in $Value) {
+                $lines.Add($line)
+            }
+        }
+    }
+
+    end {
+        if ([string]::IsNullOrWhiteSpace($Path)) {
+            throw "A target path must be specified."
+        }
+
+        $filePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+
+        if ([System.IO.File]::Exists($filePath) -and -not $Force) {
+            if (-not $PSCmdlet.ShouldProcess($filePath, "Overwrite existing file")) {
+                return
+            }
+        }
+
+        $parentDir = [System.IO.Path]::GetDirectoryName($filePath)
+
+        if ($parentDir -and -not [System.IO.Directory]::Exists($parentDir)) {
+            [System.IO.Directory]::CreateDirectory($parentDir) | Out-Null
+        }
+
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+        [System.IO.File]::WriteAllLines(
+            $filePath,
+            $lines,
+            $utf8NoBom
+        )
+    }
+}
+Set-Alias -Name wt -Value Write-Text
