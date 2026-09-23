@@ -7,10 +7,14 @@
   gap between columns. Formatting-only: the objects on the pipeline still
   carry the raw byte Length, so piping/scripting is unaffected.
 
-  This is the fallback view (and the one Get-ChildItem/dir use). Plain `ls`
-  console output draws its own fixed-width table with exactly two spaces
-  between every column; this view stays for piped objects and raw
-  Get-ChildItem.
+  This is the view used for ALL filesystem items (plain `ls`, `ls -l`,
+  piped objects, and raw `Get-ChildItem`/`dir`).
+
+  Recursive listings group output into per-directory sections — the same
+  "    Directory: <path>" headers the built-in children view draws, built the
+  same way: a custom group header that strips the provider prefix from
+  PSParentPath. Without this, a recursive listing collapses into one flat
+  table and identically-named files in different folders look like clones.
 
   Loaded by the profile via:
     Update-FormatData -PrependPath (Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml')
@@ -23,6 +27,25 @@
         <TypeName>System.IO.FileInfo</TypeName>
         <TypeName>System.IO.DirectoryInfo</TypeName>
       </ViewSelectedBy>
+      <GroupBy>
+        <PropertyName>PSParentPath</PropertyName>
+        <CustomControl>
+          <CustomEntries>
+            <CustomEntry>
+              <CustomItem>
+                <Frame>
+                  <CustomItem>
+                    <Text>    Directory: </Text>
+                    <ExpressionBinding>
+                      <ScriptBlock>$_.PSParentPath.Replace('Microsoft.PowerShell.Core\FileSystem::', '')</ScriptBlock>
+                    </ExpressionBinding>
+                  </CustomItem>
+                </Frame>
+              </CustomItem>
+            </CustomEntry>
+          </CustomEntries>
+        </CustomControl>
+      </GroupBy>
       <TableControl>
         <TableHeaders>
           <TableColumnHeader>

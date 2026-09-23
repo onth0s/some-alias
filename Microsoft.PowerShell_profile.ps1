@@ -679,6 +679,12 @@ if (Test-Path Alias:ls) { Remove-Item Alias:ls -Force }
     group. When several sort flags are given, precedence is -t, then -S, then
     -X.
 
+    Recursive listings (-R) are grouped by directory: the format view renders
+    one "Directory: <path>" section per folder, and sort flags (-l/-t/-S/-X/
+    -r) apply within each directory instead of across the whole tree (GNU
+    ls -R style), so identical filenames in different folders stay
+    distinguishable.
+
     Tokens are classified as: (1) pure short-flag combos; (2) Get-ChildItem
     parameter names or unique prefixes (-fil -> -Filter), where value-taking
     parameters consume the next token; (3) everything else, treated as a
@@ -771,7 +777,8 @@ GNU-style flags (combinable, e.g. -lat):
   -S                 Sort by file size
   -X                 Sort by extension
   -r                 Reverse sort order
-  -R                 Recursive (pass -Depth N separately for a limit)
+  -R                 Recursive; prints a Directory: section per folder
+                     (pass -Depth N separately for a limit)
 
   -?, --help         Show this help
 
@@ -845,11 +852,8 @@ Anything unrecognized is treated as a path.
         }
     }
     $sorting = $sortTime -or $sortSize -or $sortExt -or $reverse
-
-    if (-not $sorting -and -not $long) {
-        $items
-        return
-    }
+    $sortOrLong = $sorting -or $long
+    $recurse = $named.ContainsKey('Recurse') -and -not $named.ContainsKey('Name')
 
     $spec = [System.Collections.Generic.List[object]]::new()
     $spec.Add(@{ Expression = { -not $_.PSIsContainer }; Ascending = $true })
@@ -864,8 +868,33 @@ Anything unrecognized is treated as a path.
         $spec.Add(@{ Expression = 'Name'; Ascending = -not $reverse })
     }
 
-    $sorted = $items | Sort-Object $spec
-    $sorted
+    if ($recurse) {
+        # Recursive (-R): keep each directory's items together (first-seen
+        # order) so the format view renders one "Directory: <path>" section per
+        # folder. Sorting (-l/-t/-S/-X/-r) applies WITHIN each directory, the
+        # way GNU ls -R behaves, instead of across the whole flat stream.
+        $byDir = [System.Collections.Generic.Dictionary[string, [System.Collections.Generic.List[object]]]]::new()
+        $dirOrder = [System.Collections.Generic.List[string]]::new()
+        foreach ($it in $items) {
+            $key = [string]$it.PSParentPath
+            if (-not $byDir.ContainsKey($key)) {
+                $byDir[$key] = [System.Collections.Generic.List[object]]::new()
+                $dirOrder.Add($key)
+            }
+            $byDir[$key].Add($it)
+        }
+        foreach ($key in $dirOrder) {
+            $group = $byDir[$key]
+            if ($sortOrLong) { $group | Sort-Object $spec } else { $group }
+        }
+        return
+    }
+
+    if (-not $sortOrLong) {
+        $items
+        return
+    }
+    $items | Sort-Object $spec
 }
 function global:tree { npx tree-node-cli -I 'node_modules|.next' @args 2>$null }
 function global:gs { git status @args }

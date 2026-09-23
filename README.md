@@ -6,6 +6,10 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 
 - `Microsoft.PowerShell_profile.ps1` — main profile with custom functions
 - `profile.ps1` — conda-initialized profile (all-session)
+- `check-repos.ps1` — git-status scanner behind `gsall`
+- `FileSystemSize.format.ps1xml` — format view used by `ls`
+- `goto-aliases.example.json` — template for the `goto` alias store
+- `AGENTS.md` — repo working conventions
 - `.gitignore`
 
 ## Functions
@@ -19,6 +23,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `gp` | Copy a path (arg or cwd) to clipboard |
 | `ConvertFrom-ClipboardPath` | Internal helper: normalize path text |
 | `Resolve-PathString` | Internal helper: resolve a path string to a full path |
+| `Get-NearestExistingPath` | Internal helper: nearest existing ancestor for missing paths |
 | `Resolve-GotoUrl` | Internal helper: classify a `goto` target as URL or search |
 | `Save-GotoStore` | Internal helper: write the goto alias store |
 | `Find-GotoAlias` | Internal helper: exact-match lookup in the goto alias store |
@@ -38,6 +43,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
 | `ollama` | CWD-safe wrapper for the `ollama` CLI (`serve`/`kill`/`restart`/`status`) |
+| `wt` (`Write-Text`) | Write text to a file — either argument order, `-F` overwrites |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
 | `xxx` | Exit the session |
 
@@ -290,7 +296,7 @@ below). Short flags can be combined into one token
 | `-S` | Sort by size, largest first |
 | `-X` | Sort by extension, then name |
 | `-r` | Reverse the sort order |
-| `-R` | Recurse into subdirectories |
+| `-R` | Recurse into subdirectories, one `Directory:` section per folder |
 | `-?`, `--help` | Show usage help |
 
 If several sort flags are given, precedence is `-t`, then `-S`, then `-X`;
@@ -298,6 +304,12 @@ with none, items sort by name.
 
 Directories are grouped first whenever sorting is applied; `-r` reverses the
 sort within each group.
+
+`-R` emits every directory's contents as its own block, headed by a
+`Directory: <path>` line (same as plain `Get-ChildItem -Recurse`), so files
+that share a name across folders are easy to tell apart. Sort flags
+(`-l`, `-t`, `-S`, `-X`, `-r`) order items *within* each directory, GNU
+`ls -R` style, rather than across the whole tree.
 
 File listings show `Mode LastWriteTime Size Length Name`: a human-readable
 `Size` column (e.g. `7.07 GB`, two decimals; sub-KB files stay in bytes like
@@ -308,15 +320,12 @@ and show blank `Size`/`Length` cells. `ls -S` still sorts on raw `Length`, and
 piping keeps working (`ls | ? Length -gt 1mb`) because the underlying objects
 are untouched.
 
-When `ls` output goes straight to the console it draws a fixed-width text
-table: every column has a constant width, numeric columns (`Size`, `Length`)
-and headers are right-aligned, and there are exactly two spaces between every
-column — in the header and in every row (`ls`, `ls -l`, `ls -S`, etc. all
-look identical). When piped or assigned, `ls` emits the raw decorated objects
-instead, and the `FileSystemSize.format.ps1xml` view
-(loaded with `Update-FormatData`) renders them — the same columns, so a bare
-`Get-ChildItem` / `dir` or an end-of-pipeline `Format-Table` prints the same
-shape. Rendering never alters the objects on the pipeline.
+`ls` renders filesystem items through the `FileSystemSize.format.ps1xml`
+view (loaded with `Update-FormatData`): the same `Mode LastWriteTime Size
+Length Name` columns are used for console `ls`, piped/assigned output, and a
+bare `Get-ChildItem` / `dir` — including the `Directory: <path>` section
+headers on recursive listings. Rendering never alters the objects on the
+pipeline (`ls | ? Length -gt 1mb` still filters on the raw byte `Length`).
 
 > **Gotcha:** `-h` is not help — it abbreviates to `-Hidden` and lists hidden
 > items *only*. Use `-?` / `--help` for usage. `Get-Help ls` also works.
@@ -375,8 +384,32 @@ Prints the in-memory directory history (same list that `cd -` pulls from).
 upkey
 ```
 
-Stops all running AutoHotkey processes, waits ~300 ms for memory to clear, then
-relaunches `STD_HotKeys.ahk`.
+Stops all running AutoHotkey processes, waits ~300 ms for memory to clear, runs
+`merge.py` to merge any pending AHK changes, then relaunches `STD_HotKeys.ahk`.
+
+---
+
+### `wt` / `Write-Text` — Write text to a file
+
+```powershell
+wt <text> <path>         # write text to path
+wt <path> <text>         # same — argument order is interchangeable
+wt <text> <path> -F      # overwrite without prompting
+```
+
+Writes the given text as a file (UTF-8, no BOM). The text and path arguments
+are interchangeable: content decides which is which, so quoting is irrelevant.
+The first argument is swapped with the second only when the first looks like a
+path (drive letter / UNC root, contains `\` or `/`, ends in a file extension,
+is `.`/`..`, or already exists) *and* the second does not. Explicitly named
+`-Value` / `-Path` bindings are never reordered.
+
+- **`-F` / `-Force`** — overwrite a file that already exists without the
+  confirmation prompt.
+- **Pipeline** — accepts text via the pipeline (`"text" | wt -Path out.txt`).
+- If the file exists and `-Force` isn't given, prompts for confirmation
+  (`SupportsShouldProcess`, so `-WhatIf` works).
+- Missing parent directories are created automatically.
 
 ---
 
@@ -480,9 +513,10 @@ Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function 
 gsall
 ```
 
-Runs `check-repos.ps1`, which scans four roots — `00__DEV`, this repo
+Runs `check-repos.ps1`, which scans five roots — `00__DEV`, this repo
 (`Documents\WindowsPowerShell`), the Blender startup scripts dir
-(`...\Blender 5.2\5.2\scripts\startup`), and `001\TXT\Nothing, really` — recursively up to depth 3, and reports
+(`...\Blender 5.2\5.2\scripts\startup`), `001\TXT\Nothing, really`, and
+`001\TXT\GMRTI` — recursively up to depth 3, and reports
 each git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules`
 and repos ignored by a parent repo (via that parent's `.gitignore`) are skipped.
 Prints a summary line (`N repos (X dirty, Y clean) - Zs`) followed by a table
