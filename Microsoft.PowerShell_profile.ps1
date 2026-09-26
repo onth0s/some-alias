@@ -947,6 +947,7 @@ function global:upkey {
 
 
 
+
 # Waypoint - path bookmark CLI (ASCII only: profiles may not be UTF-8)
 # Session history shared by cd, cd.. / cd~ / cd\ and wp jumps.
 # cd - toggles to the previous location; wp undo / wp history use the
@@ -1009,12 +1010,38 @@ function global:cdh {
 
 function global:wp {
     $env:WP_FORCE_COLOR = if ([Environment]::UserInteractive) { "1" } else { "0" }
-    # Commands that perform interactive rich prompts (Prompt.ask). Capturing stdout via @()
-    # would buffer stdout on the pipe, causing invisible prompts. Run live.
+    # Commands that perform interactive rich prompts (Prompt.ask / Confirm.ask).
+    # Capturing stdout via @() would buffer stdout on the pipe, causing invisible
+    # prompts. Run live.
     $interactiveCmds = @('add')
-    if ($args.Count -gt 0 -and $interactiveCmds -contains $args[0]) {
-        & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
-        Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
+    # -F may prompt to create a missing target directory, so it runs live as well.
+    $force = $args -contains '-F'
+    if ($force -or ($args.Count -gt 0 -and $interactiveCmds -contains $args[0])) {
+        # A live process cannot hand its navigation target back over the captured
+        # stdout the cd protocol depends on, so -F returns it through this file.
+        $navOut = $null
+        if ($force) {
+            $navOut = Join-Path ([System.IO.Path]::GetTempPath()) ('wp_nav_' + [guid]::NewGuid().ToString('N') + '.txt')
+            $env:WP_NAV_OUT = $navOut
+        }
+        try {
+            & python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args
+        } finally {
+            Remove-Item Env:WP_FORCE_COLOR -ErrorAction SilentlyContinue
+            Remove-Item Env:WP_NAV_OUT -ErrorAction SilentlyContinue
+        }
+        if ($navOut) {
+            $target = $null
+            try {
+                if (Test-Path -LiteralPath $navOut) {
+                    $target = (Get-Content -LiteralPath $navOut -Raw -Encoding UTF8).Trim()
+                }
+            } catch {
+                $target = $null
+            }
+            Remove-Item -LiteralPath $navOut -Force -ErrorAction SilentlyContinue
+            if ($target) { Set-WaypointLocation -Literal $target }
+        }
         return
     }
     $lines = @(& python "C:\Users\Leonardo\001\00__DEV\Waypoint\waypoint\__main__.py" @args)
@@ -1120,3 +1147,4 @@ function Write-Text {
     }
 }
 Set-Alias -Name wt -Value Write-Text
+
