@@ -354,6 +354,174 @@ function global:Resolve-GotoUrl {
     return $null
 }
 
+function global:ConvertTo-GitWebUrl {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Remote,
+        [Parameter(Position = 1)]
+        [string]$Branch
+    )
+    $u = $Remote.Trim()
+    if (-not $u) { return $null }
+    if ($u -match '^[A-Za-z]:[\\/]' -or $u.StartsWith('/') -or $u.StartsWith('~') -or $u.StartsWith('..')) { return $null }
+    $base = $null
+    if ($u -match '^(?i:https?)://(?:[^@/]+@)?(?<gh>[^/:]+)(?::(?<gp>\d+))?/(?<gpath>.+)$') {
+        $port = if ($Matches['gp']) { ":$($Matches['gp'])" } else { '' }
+        $base = "https://$($Matches['gh'])$port/$($Matches['gpath'])"
+    } elseif ($u -match '^(?i:ssh|git)://(?:[^@/]+@)?(?<gh>[^/:]+)(?::\d+)?/(?<gpath>.+)$') {
+        $base = "https://$($Matches['gh'])/$($Matches['gpath'])"
+    } elseif ($u -match '^[\w.+-]+@(?<gh>[^:/]+):(?<gpath>.+)$') {
+        $base = "https://$($Matches['gh'])/$($Matches['gpath'])"
+    } else {
+        return $null
+    }
+    $base = ($base -replace '/+$', '') -replace '(?i)\.git$', ''
+    if ($base -notmatch '^https://[^/]+/.+') { return $null }
+    if (-not $Branch -or $Branch -eq 'HEAD') { return $base }
+    $seg = (($Branch -split '/') | ForEach-Object { [uri]::EscapeDataString($_) }) -join '/'
+    $hostName = ([uri]$base).Host
+    if ($hostName -eq 'bitbucket.org') { return "$base/src/$seg" }
+    if ($hostName -eq 'dev.azure.com' -or $hostName -match 'visualstudio\.com$') { return "$base`?version=GB$([uri]::EscapeDataString($Branch))" }
+    if ($hostName -in @('projects.blender.org', 'codeberg.org', 'gitea.com') -or $hostName -match '^(gitea|git|forgejo)\.') { return "$base/src/branch/$seg" }
+    if ($hostName -match 'gitlab') { return "$base/-/tree/$seg" }
+    return "$base/tree/$seg"
+}
+
+function global:Get-GitBranchRef {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root,
+        [Parameter(Mandatory = $true)]
+        [string]$Remote,
+        [switch]$Verify
+    )
+    function Get-RemoteDefault {
+        $d = "$(& git -C $Root symbolic-ref --short "refs/remotes/$Remote/HEAD" 2>$null | Select-Object -First 1)".Trim()
+        if ($d) { return ($d -replace '^[^/]+/', '' -replace '^\*', '') }
+        if ($Verify) {
+            $sym = @(& git -C $Root ls-remote --symref $Remote HEAD 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+                foreach ($l in $sym) {
+                    if ("$l" -match '^ref:\s+refs/heads/(?<db>\S+)\s+HEAD') { return $Matches['db'] }
+                }
+            }
+        }
+        return ''
+    }
+
+    $default = Get-RemoteDefault
+
+    $local = "$(& git -C $Root rev-parse --abbrev-ref HEAD 2>$null | Select-Object -First 1)".Trim()
+    $detached = ($local -eq 'HEAD' -or -not $local)
+    $upstream = "$(& git -C $Root rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>$null | Select-Object -First 1)".Trim()
+
+    function Test-RemoteBranch {
+        param([string]$Name)
+        if (-not $Name) { return $false }
+        if ($Verify) {
+            $heads = @(& git -C $Root ls-remote --heads $Remote $Name 2>$null)
+            if ($LASTEXITCODE -eq 0) { return ($heads.Count -gt 0) }
+            return $null
+        }
+        & git -C $Root rev-parse --verify --quiet "refs/remotes/$Remote/$Name" 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    $branch = ''
+    $source = 'home'
+    $caveat = ''
+    if ($detached) {
+        $branch = $default
+        $source = 'default'
+        if ($branch) { $caveat = "detached HEAD; showing $Remote's default branch ($branch)" }
+        else { $caveat = "detached HEAD and $Remote's default branch is unknown; showing the repo home" }
+    } elseif ($upstream -and $upstream -match '^(?<ur>[^/]+)/(?<ub>.+)$' -and $Matches['ur'] -ceq $Remote) {
+        $branch = $Matches['ub']
+        $source = 'upstream'
+        if ($branch -cne $local) { $caveat = "local '$local' tracks $Remote/$branch" }
+    } else {
+        $has = Test-RemoteBranch $local
+        if ($has -eq $null) {
+            $branch = $local
+            $source = 'unverified'
+            $caveat = "could not verify '$Remote' over the network; using '$local' as resolved locally"
+        } elseif ($has) {
+            $branch = $local
+            $source = 'tracking'
+        } else {
+            $caveat = "branch '$local' is not on $Remote"
+            $branch = $default
+            $source = 'default'
+            if ($branch) { $caveat = "$caveat; using its default ($branch)" }
+            else { $caveat = "$caveat and its default branch is unknown; showing the repo home" }
+        }
+    }
+
+    if ($Verify -and $branch) {
+        $heads = @(& git -C $Root ls-remote --heads $Remote $branch 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $heads.Count -eq 0) {
+            $gone = $branch
+            $branch = $default
+            $source = 'default'
+            if ($branch) { $caveat = "verified: '$gone' no longer exists on $Remote; using its default ($branch)" }
+            else { $caveat = "verified: '$gone' no longer exists on $Remote and its default branch is unknown; showing the repo home" }
+        }
+    }
+    if (-not $branch) { $caveat = "$caveat".Trim(';', ' ') }
+    [pscustomobject]@{ Branch = $branch; Source = $source; Detached = $detached; Local = $local; Upstream = $upstream; Caveat = $caveat }
+}
+
+function global:Get-GitRepoWebUrl {
+    param([switch]$Verify)
+    $root = & git rev-parse --show-toplevel 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $root) {
+        Write-Error "goto: not a git repository: $PWD"
+        return $null
+    }
+    $root = "$($root | Select-Object -First 1)".Trim()
+    if ($IsWindows -or $env:OS -eq 'Windows_NT') { $root = $root -replace '/', '\' }
+
+    $remotes = [ordered]@{}
+    foreach ($line in @(& git -C $root remote -v 2>$null)) {
+        if ("$line" -match '^(?<rn>\S+)\s+(?<ru>\S+)\s+\((?<rd>fetch|push)\)$' -and -not $remotes.Contains($Matches['rn'])) {
+            $remotes[$Matches['rn']] = $Matches['ru']
+        }
+    }
+    if ($remotes.Count -eq 0) {
+        Write-Error "goto: no remotes configured for $root."
+        return $null
+    }
+    $names = @($remotes.Keys)
+    if ($names.Count -gt 1) {
+        Write-Host "remotes for $root" -ForegroundColor DarkGray
+        for ($i = 0; $i -lt $names.Count; $i++) {
+            Write-Host ("  {0}) {1,-10} {2}" -f ($i + 1), $names[$i], $remotes[$names[$i]]) -ForegroundColor DarkGray
+        }
+        $pick = $null
+        while (-not $pick) {
+            $ans = "$((Read-Host "open which remote? (1-$($names.Count), blank cancels)"))".Trim()
+            if (-not $ans -or $ans -in @('q', 'Q')) { return $null }
+            if ($ans -match '^\d+$' -and [int]$ans -ge 1 -and [int]$ans -le $names.Count) {
+                $pick = $names[[int]$ans - 1]
+            } elseif ($names -ccontains $ans) {
+                $pick = $ans
+            } else {
+                Write-Host "not one of: $($names -join ', ')" -ForegroundColor Yellow
+            }
+        }
+        $chosen = $pick
+    } else {
+        $chosen = $names[0]
+    }
+    $bref = Get-GitBranchRef -Root $root -Remote $chosen -Verify:$Verify
+    $url = ConvertTo-GitWebUrl $remotes[$chosen] $bref.Branch
+    if (-not $url) {
+        Write-Error "goto: cannot open remote '$($remotes[$chosen])' in a browser (local path or unknown host)."
+        return $null
+    }
+    [pscustomobject]@{ Url = $url; Remote = $chosen; Branch = $bref.Branch; BranchSource = $bref.Source; Caveat = $bref.Caveat; Root = $root }
+}
+
 function global:Save-GotoStore {
     param(
         [Parameter(Position = 0)]
@@ -387,6 +555,7 @@ function global:goto {
     $help = @'
 goto [<url-or-search>] [-a <NAME> | --add-alias <NAME>]
                        [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+                       [-G | --github]
 
   goto                     open the URL/text in the clipboard
   goto google.com          open a URL in the browser
@@ -397,9 +566,15 @@ goto [<url-or-search>] [-a <NAME> | --add-alias <NAME>]
                            open it and save the target as alias 'MD'
   goto -a MD               same, with the clipboard as the target
   goto MD                  open a previously saved alias
+  goto -G                  open the git repo for the current directory
+                           in the browser, at the current branch
 
 Options:
   -h, --help               show this help
+  -G, --github             open the current git repo in the browser
+                           (prompts if the repo has more than one remote)
+  --verify, -verify       with -G, confirm the branch against the remote
+                           over the network instead of using local refs
   -a, --add-alias <NAME>   save an alias for the target (or the clipboard
                            when no target is given)
   -d, --del-alias <NAME>   delete a saved alias
@@ -408,6 +583,8 @@ Options:
     $aName = $null
     $dName = $null
     $list = $false
+    $gh = $false
+    $verify = $false
     $tokens = @()
     $i = 0
     while ($i -lt $Rest.Count) {
@@ -430,6 +607,15 @@ Options:
             }
             Write-Error "goto: --del-alias requires a name."
             return
+        } elseif ($tok -in @('-G', '--github')) {
+            if ($dName -or $list) { Write-Error "goto: cannot combine --github with --del-alias/--list-alias."; return }
+            $gh = $true
+            $i++
+            continue
+        } elseif ($tok -in @('--verify', '-verify')) {
+            $verify = $true
+            $i++
+            continue
         } elseif ($tok -in @('-ls', '--list-alias')) {
             if ($aName -or $dName) { Write-Error "goto: cannot combine --list-alias with --add-alias/--del-alias."; return }
             $list = $true
@@ -441,6 +627,7 @@ Options:
     }
     if ($d) {
         if ($aName -or $list) { Write-Error "goto: cannot combine --del-alias with --add-alias/--list-alias."; return }
+        if ($gh) { Write-Error "goto: cannot combine --del-alias with --github."; return }
         if ($tokens.Count -eq 0) { Write-Error "goto: --del-alias requires a name."; return }
         $dName = $tokens[0]
         $tokens = @($tokens | Select-Object -Skip 1)
@@ -449,9 +636,12 @@ Options:
     if ($q -in @('-h', '--help')) { Write-Host $help -ForegroundColor DarkGray; return }
     if ($list -and $q) { Write-Error "goto: --list-alias takes no target."; return }
     if ($dName -and $q) { Write-Error "goto: --del-alias does not take a target."; return }
+    if ($gh -and ($dName -or $list)) { Write-Error "goto: cannot combine --github with --del-alias/--list-alias."; return }
+    if ($gh -and $q) { Write-Error "goto: --github does not take a target."; return }
+    if ($verify -and -not $gh) { Write-Error "goto: --verify only applies to --github."; return }
 
     $src = 'args'
-    if (-not $q -and -not $list) {
+    if (-not $q -and -not $list -and -not $gh) {
         $clip = Get-Clipboard -Raw
         if ($clip) { $clip = ($clip -replace '\s+', ' ').Trim() }
         if (-not $clip) { Write-Error "goto: clipboard is empty."; return }
@@ -505,21 +695,28 @@ Options:
     }
 
     $viaAlias = $false
-    $url = $null
-    if (-not $aName -and $src -eq 'args' -and $q -notmatch '\s') {
-        $hit = Find-GotoAlias $aliases $q
-        if ($hit) {
-            $url = $hit.Value
-            $viaAlias = $true
-        }
-    }
-
     $isSearch = $false
-    if (-not $viaAlias) {
-        $url = Resolve-GotoUrl $q
-        if (-not $url) {
-            $isSearch = $true
-            $url = "https://www.google.com/search?q=$([uri]::EscapeDataString($q))"
+    $url = $null
+    $repo = $null
+    if ($gh) {
+        $repo = Get-GitRepoWebUrl -Verify:$verify
+        if (-not $repo) { return }
+        $url = $repo.Url
+        $src = 'git'
+    } else {
+        if (-not $aName -and $src -eq 'args' -and $q -notmatch '\s') {
+            $hit = Find-GotoAlias $aliases $q
+            if ($hit) {
+                $url = $hit.Value
+                $viaAlias = $true
+            }
+        }
+        if (-not $viaAlias) {
+            $url = Resolve-GotoUrl $q
+            if (-not $url) {
+                $isSearch = $true
+                $url = "https://www.google.com/search?q=$([uri]::EscapeDataString($q))"
+            }
         }
     }
 
@@ -539,7 +736,17 @@ Options:
         Write-Host " -> $url" -ForegroundColor Green
     }
 
-    if ($viaAlias) {
+    if ($src -eq 'git') {
+        Write-Host "opening repo " -ForegroundColor Cyan -NoNewline
+        Write-Host $repo.Remote -ForegroundColor DarkGray -NoNewline
+        if ($repo.Branch) {
+            Write-Host " ($($repo.Branch))" -ForegroundColor DarkGray -NoNewline
+        }
+        Write-Host " -> $url" -ForegroundColor Green
+        if ($repo.Caveat) {
+            Write-Host "  $($repo.Caveat)" -ForegroundColor DarkGray
+        }
+    } elseif ($viaAlias) {
         Write-Host "opening $q" -ForegroundColor Cyan -NoNewline
         Write-Host " -> $url" -ForegroundColor Green
     } elseif ($isSearch) {

@@ -25,6 +25,9 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `Resolve-PathString` | Internal helper: resolve a path string to a full path |
 | `Get-NearestExistingPath` | Internal helper: nearest existing ancestor for missing paths |
 | `Resolve-GotoUrl` | Internal helper: classify a `goto` target as URL or search |
+| `ConvertTo-GitWebUrl` | Internal helper: convert a git remote URL to a browser URL (optional branch suffix) |
+| `Get-GitBranchRef` | Internal helper: resolve which branch of a chosen remote the current checkout corresponds to |
+| `Get-GitRepoWebUrl` | Internal helper: pick a remote for the current repo and return its web URL |
 | `Save-GotoStore` | Internal helper: write the goto alias store |
 | `Find-GotoAlias` | Internal helper: exact-match lookup in the goto alias store |
 | `op` | Launch opencode |
@@ -188,11 +191,12 @@ Shortcut for launching `opencode`.
 
 ---
 
-### `goto` — Open URL, Google search, or URL aliases
+### `goto` — Open URL, Google search, git repo, or URL aliases
 
 ```powershell
 goto [<url-or-search>] [-a <NAME> | --add-alias <NAME>]
                         [-d <NAME> | --del-alias <NAME>] [-ls | --list-alias]
+                        [-G | --github]
 ```
 
 A smarter browser `start`: detects whether the argument is a URL or a search
@@ -207,6 +211,48 @@ string.
   trimmed): treated as a URL or search text only — clipboard text is never
   resolved as an alias name (aliases must be typed on the command line).
   Errors on an empty clipboard. `-h` / `--help` prints usage help.
+- **`-G` / `--github`** — opens the git repo containing the current directory in
+  the browser, at the current branch. Works from any subdirectory. The remote is
+  read with `git remote -v`; `origin` and `user@host:path` (SSH), `https://…`,
+  `ssh://…` and `git://…` forms are all understood, and a trailing `.git` is
+  stripped. **If the repo has more than one remote it prompts** (numbered, and
+  it re-prompts on bad input; blank or `q` cancels) rather than guessing — e.g.
+  `CorridorKey` has `ckey` and `origin` pointing at different repos.
+
+  The branch in the URL is **resolved against the chosen remote**, because a
+  local branch name is not necessarily a branch that exists on that remote. In
+  order:
+
+  1. the local branch's **upstream**, if it tracks the chosen remote (so
+     `CorridorKey`'s local `main`, which tracks `ckey/master`, opens
+     `.../ckey/tree/master`, not the non-existent `.../ckey/tree/main`);
+  2. else the chosen remote's **remote-tracking ref** for the local name;
+  3. else the remote's **default branch**;
+  4. else the repo home page.
+
+  **Detached HEAD** goes to the remote's default branch, and any substitution
+  is printed on a second line rather than silently applied — e.g.
+  `branch 'fork' is not on origin; using its default (main)`. Nothing is ever
+  guessed: a branch that cannot be confirmed falls back to a page that
+  definitely exists.
+
+  Resolution is **offline by default**, using refs as of your last fetch, so it
+  is fast and never prompts. Because a branch deleted on the remote since your
+  last fetch will still look valid locally, **`--verify` / `-verify`** confirms the
+  branch with `git ls-remote --heads` first (and asks the remote for its
+  default branch via `--symref` when the local `origin/HEAD` ref is absent, as
+  it is in many repos). It is opt-in because it needs the network and may
+  prompt for SSH host-key or credential verification; if that lookup fails, the
+  offline answer is kept and the caveat says so. There is deliberately no `-V`
+  short form: PowerShell resolves a bare `-V` against the built-in `-Verbose`
+  parameter and swallows it before `goto` ever sees it.
+
+  The branch URL layout is host-aware: GitHub and unknown hosts use
+  `/tree/<branch>`, GitLab `/-/tree/…`, Gitea/Codeberg `/src/branch/…`,
+  Bitbucket `/src/…`, Azure DevOps `?version=GB…`. A non-repo directory, a
+  repo with no remotes, or a remote that is a local path each produce a plain
+  error. Takes no target (`goto -G foo.com` errors) but does combine with `-a`
+  and `-V`.
 - **`-a <NAME>` / `--add-alias <NAME>`** — opens the target *and* saves it as a
   URL alias. Later, `goto <NAME>` opens the saved URL directly. Names are
   case-sensitive (letters, digits, `-`, `_`); `goto X` and `goto x` are
@@ -230,6 +276,9 @@ goto onth0s.github.io/markdown-viewer -a MD          # opens + saves alias MD
 goto MD                                              # opens the saved URL
 goto                                                    # opens the clipboard URL/text
 goto -a MD                                            # opens clipboard URL + saves alias MD
+goto -G                                              # open the current repo at the current branch
+goto -G -a WP                                        # open it + save it as alias WP
+goto -G --verify                                     # confirm the branch against the remote first
 goto -ls                                             # list aliases
 goto -d MD                                           # delete alias MD
 ```
