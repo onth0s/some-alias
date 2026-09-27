@@ -7,9 +7,8 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 - `Microsoft.PowerShell_profile.ps1` — main profile with custom functions
 - `profile.ps1` — conda-initialized profile (all-session)
 - `check-repos.ps1` — git-status scanner behind `gsall`
-- `start_menu.ps1` — logon job: forces `Start_Layout=1`, then restarts the shell
-- `start_menu.lnk` — tracked master of the shortcut that launches it
-- `Install-StartupShortcut.ps1` — deploys that shortcut to the Startup folder and verifies it
+- `start_menu.bat` — logon job: forces `Start_Layout=1`, then restarts the shell
+- `Install-StartupJob.ps1` — deploys that job to the Startup folder and verifies it
 - `FileSystemSize.format.ps1xml` — format view used by `ls`
 - `goto-aliases.example.json` — template for the `goto` alias store
 - `AGENTS.md` — repo working conventions
@@ -578,53 +577,46 @@ with the tracked file count per repo.
 
 ## Startup
 
-`start_menu.ps1` runs at logon. It forces `Start_Layout=1` under
+`start_menu.bat` runs at logon. It forces `Start_Layout=1` under
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced` and then
 restarts the shell so the change takes effect. Every step is logged to
 `%TEMP%\start_menu.log` — that log is the quickest way to tell whether the job
 actually ran, which matters because the failure mode here is silence.
 
-### The shortcut is tracked, the deployed copy is not
+Plain batch on purpose: `reg.exe` and `taskkill.exe` are the whole job and both
+live in `%SystemRoot%\System32`. No PowerShell, no shortcut to resolve, no
+profile to inherit.
 
-Explorer's logon pass executes `.lnk` files but **not** `.ps1`, so the shortcut
-has to sit in the Startup folder to run at all — which means it cannot simply
-live in the repo. `start_menu.lnk` here is therefore the *master*, and
-`Install-StartupShortcut.ps1` copies it into
+### The job is tracked, the deployed copy is not
+
+Explorer's logon pass executes `.bat` files but **not** `.ps1`, so the job has to
+sit in the Startup folder to run at all — which means it cannot simply live in
+the repo. `start_menu.bat` here is therefore the *master*, and
+`Install-StartupJob.ps1` copies it into
 `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`, then compares
 SHA256 hashes to confirm the deployed copy is byte-identical. Re-run it after
-editing the shortcut, or on a new machine:
+editing the job, or on a new machine:
 
 ```powershell
-.\Install-StartupShortcut.ps1
+.\Install-StartupJob.ps1
 ```
 
-To confirm Explorer has actually picked the shortcut up, look for
-`start_menu.lnk` in
+To confirm Explorer has actually picked it up, look for `start_menu.bat` in
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\StartupFolder`
 with a leading `02 00 00 00` (enabled). Explorer only writes that entry during
 its own logon pass, so it stays absent until the first sign-in after deployment.
 
-Note the shortcut embeds absolute paths and so is machine-specific; on a new
-machine, regenerate it rather than copying it.
-
-### Why `-NoProfile`
-
-The shortcut runs:
-
-```powershell
-powershell.exe -NoProfile -WindowStyle Hidden -File "<repo>\start_menu.ps1"
-```
-
-A login task should not inherit the `Documents\PowerShell` shim, which
-chain-dot-sources the 58 KB profile in this repo. If any of that profile's
-top-level statements threw, it would kill the startup job silently — with no
-console at logon to show the error, which is the exact failure this setup
-exists to avoid.
-
-### Why the 8-second delay
+### Why the delay, and why explorer is started explicitly
 
 Startup items are dispatched *by* `explorer.exe`, so killing it before that pass
 finishes aborts whatever has not launched yet (`WinPie`, `test_01.ahk`, pending
-`Run` keys). The script writes the registry value immediately and waits before
-restarting the shell, so the rest of the Startup folder gets a clear run.
+`Run` keys). The registry value is therefore written immediately and the restart
+deferred by 8 seconds, from a detached process, so the job's own console closes
+at once and the rest of the Startup folder gets a clear run. That costs one
+minimised console in the taskbar for roughly 11 seconds.
+
+`explorer.exe` is then relaunched explicitly rather than trusting Windows to
+notice the shell died. Observed on this machine: a bare
+`taskkill /f /im explorer.exe` left the desktop down until something started
+explorer again.
 
