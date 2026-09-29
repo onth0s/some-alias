@@ -48,7 +48,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
 | `ollama` | CWD-safe wrapper for the `ollama` CLI (`serve`/`kill`/`restart`/`status`) |
-| `wt` (`Write-Text`) | Write text to a file — either argument order, `-F` overwrites |
+| `wt` (`Write-Text`) | Write text to a file — `wt <content> <path>`, `-F` overwrites |
 | `tree` | Directory tree (ignores `node_modules`/`.next`) |
 | `xxx` | Exit the session |
 
@@ -443,17 +443,17 @@ Stops all running AutoHotkey processes, waits ~300 ms for memory to clear, runs
 ### `wt` / `Write-Text` — Write text to a file
 
 ```powershell
-wt <text> <path>         # write text to path
-wt <path> <text>         # same — argument order is interchangeable
-wt <text> <path> -F      # overwrite without prompting
+wt <content> <path>       # write content to path
+wt <content> <path> -F    # overwrite without prompting
 ```
 
-Writes the given text as a file (UTF-8, no BOM). The text and path arguments
-are interchangeable: content decides which is which, so quoting is irrelevant.
-The first argument is swapped with the second only when the first looks like a
-path (drive letter / UNC root, contains `\` or `/`, ends in a file extension,
-is `.`/`..`, or already exists) *and* the second does not. Explicitly named
-`-Value` / `-Path` bindings are never reordered.
+Writes the given content as a file (UTF-8, no BOM). The argument order is fixed:
+content first, path second. Nothing is guessed or reordered, so content that itself
+looks like a path (`src/main.py`, `a/b`, `notes.md`) is still written as content.
+Omitting the path throws a usage error.
+
+Reversed arguments are **not** detected — `wt <path> <content>` writes the path
+string as content into a file literally named after your content. Check the order.
 
 - **`-F` / `-Force`** — overwrite a file that already exists without the
   confirmation prompt.

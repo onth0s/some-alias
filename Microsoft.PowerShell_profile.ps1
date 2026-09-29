@@ -1288,33 +1288,9 @@ function Write-Text {
     )
 
     begin {
+        # Argument order is fixed: wt <content> <path>. The first positional
+        # argument is always content, even when it looks like a path.
         $lines = [System.Collections.Generic.List[string]]::new()
-
-        # Best-effort guess at whether a string looks like a file path.
-        $isPathLike = {
-            param([string]$s)
-            if ([string]::IsNullOrWhiteSpace($s)) { return $false }
-            if ($s -match '^(?:[A-Za-z]:\\|\\\\)') { return $true }    # drive / UNC
-            if ($s.Contains('\') -or $s.Contains('/')) { return $true } # separator
-            if ($s -match '\.[A-Za-z0-9]{1,5}$') { return $true }       # extension
-            if ($s -eq '.' -or $s -eq '..') { return $true }            # cwd / parent
-            if (Test-Path -LiteralPath $s -ErrorAction SilentlyContinue) { return $true }
-            return $false
-        }
-
-        # Make 'wt <text> <path>' and 'wt <path> <text>' interchangeable.
-        # Content decides; quoting is irrelevant because PowerShell already
-        # unquotes the bound values. Swap only when the first positional
-        # looks like a path and the second does not. Never reorder
-        # explicitly named -Value / -Path bindings.
-        if (-not $MyInvocation.ExpectingInput -and $Path -and $Value.Count -eq 1 -and
-            $MyInvocation.Line -notmatch '(?i)(?<!\w)-[VP][A-Za-z]*') {
-            if ((& $isPathLike $Value[0]) -and -not (& $isPathLike $Path)) {
-                $temp  = $Value[0]
-                $Value[0] = $Path
-                $Path = $temp
-            }
-        }
     }
 
     process {
@@ -1327,7 +1303,7 @@ function Write-Text {
 
     end {
         if ([string]::IsNullOrWhiteSpace($Path)) {
-            throw "A target path must be specified."
+            throw "A target path must be specified. Usage: wt <content> <path>"
         }
 
         $filePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
