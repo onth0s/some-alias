@@ -86,9 +86,39 @@ current directory, then a matching `cookies\<host>_cookies.txt` in
 `unauthorized; 403 likely` and continues.
 
 If a download fails (e.g. YouTube/TikTok blocking unauthenticated requests),
-`yt` prompts to open the link so you can export/re-export a cookies file, then
-retries — up to 3 attempts. After a successful authenticated download it stores
-the used cookies in `cookies\<host>_cookies.txt` for next time.
+`yt` asks once whether to open the link so you can refresh cookies, then tells
+you to rerun. It does **not** retry in place: `--cookies` is read once at
+startup, so an in-session retry would just re-run against the same stale jar.
+Answer `n` and `yt` exits immediately. After a successful authenticated download
+it stores the used cookies in `cookies\<host>_cookies.txt` for next time.
+
+#### TikTok image posts (`-NoImages`)
+
+TikTok delivers image+audio posts as **audio only** — there is no video stream.
+The picture is present solely as embedded cover art. `yt` therefore saves the
+**full-res original** beside the MP3, dissociating the two:
+
+```
+Someone has to carry el Valles  [7668436193532546326].mp3
+Someone has to carry el Valles [7668436193532546326] [01].jpeg   <- 1920x1440
+```
+
+Carousel posts save every image, numbered `[01]`, `[02]`, …
+
+- Image completeness is tracked **per post, on disk only**. A photo+song post
+  counts as downloaded **only when both the audio and the image are present** — an
+  MP3 alone is treated as incomplete, so re-running `yt` on an existing folder
+  fills in the images for posts you already downloaded as audio, without
+  refetching the audio.
+- `/photo/<id>` URLs are rewritten to `/video/<id>` internally; yt-dlp's TikTok
+  extractor only understands the latter and otherwise fails with a bare
+  `ERROR: Unsupported URL:`.
+- The saved `.jpeg` and the MP3's embedded cover art are the **same asset at the
+  same resolution** — nothing is downscaled; the change is that you get a separate
+  file instead of one locked inside the MP3.
+- `-NoImages` restores the old audio-only behaviour. The dissociation probe costs
+  one extra HTTP request per *candidate* post, not per post — a folder that is
+  already complete costs none.
 
 #### URL input
 
@@ -103,7 +133,8 @@ When `N` is specified (or passed as a bare number), `yt` scans the first `N`
 items of a playlist before downloading:
 
 - **What it checks:** whether each item's video ID appears in any filename in
-  the **current directory** (matched by `*[<videoId>]*`).
+  the **current directory** (matched by `*[<videoId>]*`). On TikTok, an image
+  post also needs its `[NN].jpeg` — see [TikTok image posts](#tiktok-image-posts-noimages).
 - **Already downloaded** → listed in green, skipped.
 - **Missing** → listed in white, then prompts:
   > `Download these N songs? (Y/n)`

@@ -351,7 +351,9 @@ function global:yt {
         [switch]$AbortOnError,
         [string]$Archive,
         [switch]$NoArchive,
-        [switch]$Photos
+        [switch]$Photos,
+        [switch]$Images,
+        [switch]$NoImages
     )
     $ytdlp = "C:\Users\Leonardo\001\00__DEV\zz - VAR\yt-dlp\yt-dlp.exe"
     $isVideo = $v -or $video
@@ -369,6 +371,19 @@ function global:yt {
         Write-Host "Using URL from clipboard: " -ForegroundColor DarkGray -NoNewline
         Write-Host $Url -ForegroundColor Blue
     }
+    # TikTok's yt-dlp extractor only understands /video/<id>. A /photo/<id> URL falls
+    # through to the generic extractor and dies with a bare "ERROR: Unsupported URL:"
+    # that carries no [TikTok] <id> tag, so the photo fallback can never see it.
+    # Normalising to /video/ is what makes a single image+audio post resolvable.
+    if ($Url -match '/photo/(\d+)') {
+        $Url = $Url -replace '/photo/\d+', "/video/$($Matches[1])"
+    }
+    $isTiktok = ($Url -match 'tiktok\.com')
+    # Photos are dissociated by default on TikTok: image posts ship as audio-only m4a
+    # with the picture present only as embedded cover art, so save the full-res
+    # original alongside. -NoImages forces the old audio-only behaviour.
+    $trackImages = ($isTiktok -and -not $NoImages)
+    if ($NoImages) { $trackImages = $false }
     $argsList = @()
     if ($isVideo) {
         $argsList += @("-f", "bestvideo+bestaudio/best")
@@ -464,11 +479,48 @@ function global:yt {
         if ($archiveSet.Contains($Id)) { return $true }
         return [bool](Get-ChildItem -Path . -Filter "*$Id*" -File -ErrorAction SilentlyContinue)
     }
+    function Test-ImagesDone {
+        # Image completeness is judged from the FILESYSTEM ONLY - never from the
+        # download archive. The archive is the audio ledger; a photo+song post gets
+        # its id appended the moment yt-dlp writes the mp3, so consulting it here
+        # would report image+audio posts as done before the image was ever fetched.
+        #
+        # Must match ONLY a dissociated image, identified by Save-TikTokPhotoPost's
+        # " [<id>] [NN]" naming. yt is invoked with -w, so yt-dlp writes its own
+        # "[<id>].jpeg" thumbnail for EVERY post (verified: ordinary video posts get
+        # one too). Matching any jpeg would make every post look image-complete and
+        # a photo+song post in an existing folder would never be flagged.
+        # Uses -Filter + Where-Object, not -Include: -Include is silently ignored for
+        # a bare -Path . without -Recurse/wildcard, which would always report false.
+        param([string]$Id)
+        if (-not $Id) { return $true }
+        $hit = Get-ChildItem -Path . -Filter "*$Id*" -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '\[\d+\]\s*\[\d{2,}\]\.[A-Za-z0-9]+$' }
+        return [bool]$hit
+    }
+    function Test-Complete {
+        # A photo+audio post is only "downloaded" when BOTH halves are on disk. Without
+        # this, an mp3 alone matches Test-Downloaded's "*$Id*" filter and the post is
+        # skipped forever - the image could never be fetched into an existing folder.
+        # Deliberately NOT folded into Test-Downloaded: the archive-pruning block above
+        # shares that helper, and loosening it would prune live entries and trigger
+        # mass re-downloads.
+        param([string]$Id)
+        if (-not (Test-Downloaded -Id $Id)) { return $false }
+        if ($trackImages -and -not (Test-ImagesDone -Id $Id)) {
+            # Audio is present (or archived) but no image: only a photo post can be in
+            # this state, since ordinary video posts never gain a matching image file.
+            # Probe it - cheap, and bounded to candidates rather than every post.
+            if (Test-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id") { return $false }
+        }
+        return $true
+    }
     function Save-PhotoPosts {
         param([string[]]$Ids)
         $saved = 0
         $notphoto = @()
         foreach ($pid2 in $Ids) {
+            if (Test-ImagesDone -Id $pid2) { continue }
             $vidUrl = "$($Url.TrimEnd('/'))/video/$pid2"
             $imgs = Get-TikTokPhotoPost -Url $vidUrl
             if (-not $imgs -or $imgs.Count -eq 0) { $notphoto += $pid2; continue }
@@ -502,7 +554,7 @@ function global:yt {
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
             $title = $parts[2].Trim()
-            if (Test-Downloaded -Id $vidId) {
+            if (Test-Complete -Id $vidId) {
                 $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             } else {
                 $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
@@ -544,7 +596,7 @@ function global:yt {
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
             $title = $parts[2].Trim()
-            if (Test-Downloaded -Id $vidId) {
+            if (Test-Complete -Id $vidId) {
                 $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             } else {
                 $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
@@ -656,6 +708,20 @@ function global:yt {
     }
     Invoke-Dl
     $dlExit = $LASTEXITCODE
+    # Dissociate image+audio posts: the mp3 carries the picture only as embedded
+    # cover art, so save the full-res original beside it. Probed per id, and only
+    # for posts whose image is still missing.
+    if ($trackImages -and $isTiktok) {
+        $imgIds = @()
+        if ($Url -match '/video/(\d+)') { $imgIds += $Matches[1] }
+        foreach ($m in $missing) { $imgIds += $m.Id }
+        if ($imgIds.Count -gt 0) {
+            $n = Save-PhotoPosts -Ids ($imgIds | Select-Object -Unique)
+            if ($n -gt 0) {
+                Write-Host "yt: saved $n full-res image(s) alongside the audio." -ForegroundColor Green
+            }
+        }
+    }
     $failedIds = @(Get-FailedIds)
     $script:photoStillFailed = @()
     if ($failedIds.Count -gt 0 -and $hostName -match 'tiktok\.com') {
@@ -683,22 +749,15 @@ function global:yt {
         }
     } elseif ($dlExit -ne 0) {
         Write-ErrLines
-        $attempts = 0
-        while ($attempts -lt 3) {
-            Write-Host "`nDownload failed - $siteName refused it (rate limit, geo-block, or expired cookies)." -ForegroundColor Yellow
-            $r = Read-Host "Open $siteName to refresh cookies? (Y/n)"
-            if ($r -ne 'n') { Start-Process $Url }
-            $r2 = Read-Host "Cookies refreshed? Try again? (y/N)"
-            if ($r2 -ne 'y') { break }
-                $attempts++
-            if ($SleepInterval -gt 0) { Start-Sleep -Seconds 10 }
-            Invoke-Dl
-            Write-ErrLines
-            if ($LASTEXITCODE -eq 0) { Write-Host "Download OK." -ForegroundColor Green; break }
-        }
-        if ($attempts -ge 3) {
-            Write-Host "Gave up after 3 attempts - save cookies in the download folder or pass -c, then rerun yt." -ForegroundColor Red
-        }
+        Write-Host "`nDownload failed - $siteName refused it (rate limit, geo-block, or expired cookies)." -ForegroundColor Yellow
+        $r = Read-Host "Open $siteName to refresh cookies, then rerun yt? (Y/n)"
+        if ($r -eq 'n') { return }
+        Start-Process $Url
+        # No auto-retry: --cookies is read once at startup, so retrying in-session
+        # re-runs against the same stale jar. Rerunning yt re-reads the jar.
+        Write-Host "yt: opened $siteName. Refresh cookies, then rerun yt for this URL." -ForegroundColor DarkGray
+        $global:LASTEXITCODE = $dlExit
+        return
     }
     if ($script:usedCookie -and -not $script:usedCookie.StartsWith($cookieStore, [System.StringComparison]::OrdinalIgnoreCase)) {
         $storeHost = $hostName
