@@ -189,150 +189,6 @@ function global:opf {
     Write-Error "No valid file path in clipboard"
 }
 function global:HH { hermes gateway run -v @args }
-function global:Get-CookieHeaderString {
-    <# Builds a "Cookie: k=v; k=v" header from a Netscape-format cookie jar (yt-dlp's format).
-       Returns $null when no jar is found. Without cookies TikTok serves a challenge stub
-       instead of the real page, so imagePost never shows up. #>
-    param([string]$CookieFile, [string]$CookieHost = "www.tiktok.com")
-    if (-not $CookieFile) {
-        $store = Join-Path $env:USERPROFILE "Documents\WindowsPowerShell\cookies"
-        $cand = Join-Path $store "${CookieHost}_cookies.txt"
-        if (Test-Path -LiteralPath $cand) { $CookieFile = $cand }
-    }
-    if (-not $CookieFile -or -not (Test-Path -LiteralPath $CookieFile)) { return $null }
-    try { $lines = Get-Content -LiteralPath $CookieFile -ErrorAction Stop } catch { return $null }
-    $pairs = @()
-    foreach ($line in $lines) {
-        if (-not $line -or $line.StartsWith('#')) { continue }
-        $p = $line -split "`t"
-        if ($p.Count -ge 7 -and $p[5] -and $p[6]) { $pairs += "$($p[5])=$($p[6])" }
-    }
-    if ($pairs.Count -eq 0) { return $null }
-    return ($pairs -join '; ')
-}
-function global:Get-TikTokPhotoPost {
-    <#
-        yt-dlp's TikTok extractor has no photo/slideshow support, so those posts fail with
-        "No video formats found!". The image URLs live in the page's __UNIVERSAL_DATA_FOR_REHYDRATION__
-        blob under imagePost.images[]. Returns an array of image URLs, or empty if not a photo post.
-    #>
-    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 3)
-    $start = -1
-    $html = ''
-    $headers = @{
-        "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        "Referer"    = if ($Referer) { $Referer } else { "https://www.tiktok.com/" }
-        "Accept-Language" = "en-US,en;q=0.9"
-    }
-    $cookieStr = Get-CookieHeaderString
-    for ($try = 1; $try -le $Attempts; $try++) {
-        $h = @{} + $headers
-        if ($cookieStr) { $h["Cookie"] = $cookieStr }
-        try {
-            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 -Headers $h
-            $html = $resp.Content
-        } catch {
-            $html = ''
-        }
-        if (-not $html) { $html = (curl -s -L -A $headers["User-Agent"] $Url 2>&1) | Out-String }
-        # Some responses double-encode the JSON (\" escapes); normalise before searching.
-        if ($html -match '\\"imagePost\\"') { $html = $html -replace '\\"', '"' }
-        $start = $html.IndexOf('"imagePost"')
-        if ($start -lt 0) { $start = $html.IndexOf('imagePost') }
-        if ($start -ge 0) { break }
-        if ($try -lt $Attempts) { Start-Sleep -Seconds (2 * $try) }
-    }
-    if ($start -lt 0) { return @() }
-    $block = $html.Substring($start, [Math]::Min(40000, $html.Length - $start))
-    $arrStart = $block.IndexOf('"images":[')
-    if ($arrStart -lt 0) {
-        $arrStart = $block.IndexOf('images":[')
-        if ($arrStart -lt 0) { return @() }
-    }
-    $coverIdx = $block.IndexOf('"cover":', $arrStart)
-    if ($coverIdx -lt 0) { $coverIdx = $block.IndexOf('cover":', $arrStart) }
-    if ($coverIdx -lt 0) { $coverIdx = $block.Length }
-    $arr = $block.Substring($arrStart, $coverIdx - $arrStart)
-    $urls = @()
-    $seen = @{}
-    foreach ($ul in [regex]::Matches($arr, '"urlList"\s*:\s*\[((?:[^]]|(?<=\\)])*)\]')) {
-        $list = $ul.Groups[1].Value
-        foreach ($u in [regex]::Matches($list, '"([^"]+)"')) {
-            $uu = $u.Groups[1].Value -replace '\\u002F', '/' -replace '\\/', '/' -replace '%3A', ':' -replace '%2F', '/'
-            $sig = (($uu -split '\?')[0]) -replace 'https?://p1[69]-common-sign[^/]*', 'H'
-            if ($seen.ContainsKey($sig)) { continue }
-            $seen[$sig] = $true
-            $urls += $uu
-        }
-    }
-    if ($urls.Count -eq 0) {
-        foreach ($m in [regex]::Matches($arr, 'https?(?::|%3A)(?:\\u002F\\u002F|\\/\\/|//|%2F%2F)[^"\\\s,]+?(?=\?|\s|"|,|\])')) {
-            $uu = $m.Value -replace '\\u002F','/' -replace '\\/','/' -replace '%3A',':' -replace '%2F','/'
-            $sig = (($uu -split '\?')[0]) -replace 'https?://p1[69]-common-sign[^/]*', 'H'
-            if ($seen.ContainsKey($sig)) { continue }
-            $seen[$sig] = $true
-            $urls += $uu
-        }
-    }
-    return $urls
-}
-function global:Get-TikTokPostDesc {
-    <# The caption of a TikTok post, read from the page HTML. yt-dlp cannot supply this for
-       photo posts because extraction fails before the title is parsed. #>
-    param([Parameter(Mandatory)][string]$Url, [int]$Attempts = 3)
-    $html = ''
-    $headers = @{
-        "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        "Referer"    = "https://www.tiktok.com/"
-    }
-    $cookieStr = Get-CookieHeaderString
-    for ($try = 1; $try -le $Attempts; $try++) {
-        $h = @{} + $headers
-        if ($cookieStr) { $h["Cookie"] = $cookieStr }
-        try {
-            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 -Headers $h
-            $html = $resp.Content
-        } catch { $html = '' }
-        if ($html -and $html -match '"desc"\s*:\s*"') { break }
-        if ($try -lt $Attempts) { Start-Sleep -Seconds (2 * $try) }
-    }
-    if (-not $html) { return $null }
-    $m = [regex]::Match($html, '"desc"\s*:\s*"((?:[^"\\]|\\.)*)"')
-    if (-not $m.Success) { return $null }
-    $d = $m.Groups[1].Value -replace '\\u002F', '/' -replace '\\"', '"' -replace '\\n', ' ' -replace '\\u0026', '&'
-    $d = $d -replace '\\u([0-9a-fA-F]{4})', { param($x) [char][Convert]::ToInt32($x.Groups[1].Value, 16) }
-    return $d.Trim()
-}
-function global:Save-TikTokPhotoPost {
-    <# Downloads a TikTok photo/slideshow post as individual images. Returns $true if anything was written. #>
-    param(
-        [Parameter(Mandatory)][string]$Url,
-        [string]$BaseName = (Split-Path $Url -Leaf)
-    )
-    $urls = Get-TikTokPhotoPost -Url $Url
-    if (-not $urls -or $urls.Count -eq 0) { return $false }
-    $safe = ($BaseName -replace '[\\/:*?"<>|]', '_')
-    if ($safe.Length -gt 120) { $safe = $safe.Substring(0, 120).Trim() }
-    $written = 0
-    $n = 0
-    foreach ($u in $urls) {
-        $n++
-        $ext = [System.IO.Path]::GetExtension(($u -split '\?')[0])
-        if (-not $ext -or $ext.Length -gt 5) { $ext = ".jpg" }
-        $dest = Join-Path (Get-Location).Path ("{0} [{1:d2}]{2}" -f $safe, $n, $ext)
-        try {
-            Invoke-WebRequest -Uri $u -OutFile $dest -UseBasicParsing -TimeoutSec 60 -Headers @{
-                "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                "Referer"    = "https://www.tiktok.com/"
-            }
-            $written++
-            Write-Host "  saved $(Split-Path $dest -Leaf)" -ForegroundColor DarkGray
-        } catch {
-            Write-Host "  image $n failed: $($_.Exception.Message)" -ForegroundColor Yellow
-        }
-    }
-    return ($written -gt 0)
-}
 function global:yt {
     param(
         [Parameter(Position = 0)]
@@ -343,15 +199,7 @@ function global:yt {
         [switch]$v,
         [switch]$video,
         [Parameter(Position = 1)]
-        [int]$N = 0,
-        [Alias('Sleep', 'Delay')]
-        [double]$SleepInterval = 1.5,
-        [double]$SleepRequests = 0.8,
-        [switch]$IgnoreErrors,
-        [switch]$AbortOnError,
-        [string]$Archive,
-        [switch]$NoArchive,
-        [switch]$Photos
+        [int]$N = 0
     )
     $ytdlp = "C:\Users\Leonardo\001\00__DEV\zz - VAR\yt-dlp\yt-dlp.exe"
     $isVideo = $v -or $video
@@ -363,7 +211,6 @@ function global:yt {
         $Url = ("$(Get-Clipboard -Raw -ErrorAction SilentlyContinue)").Trim()
         if (-not $Url -or $Url -notmatch '^https?://') {
             Write-Error "No URL provided and clipboard does not contain a valid URL."
-            $global:LASTEXITCODE = 1
             return
         }
         Write-Host "Using URL from clipboard: " -ForegroundColor DarkGray -NoNewline
@@ -375,33 +222,9 @@ function global:yt {
     } else {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
-    $argsList += @("--embed-thumbnail", "--embed-metadata", "-w", "-c")
-    # Multi-item runs should not die on one guardrail-blocked video; single videos should fail loudly.
-    $multiItem = ($N -gt 0) -or ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip)/\d')
-    $useIgnore = if ($IgnoreErrors) { $true } elseif ($AbortOnError) { $false } else { $multiItem }
-    if ($useIgnore) { $argsList += "--ignore-errors" } else { $argsList += "--abort-on-error" }
-    if ($SleepInterval -gt 0) {
-        $argsList += @("--sleep-interval", $SleepInterval, "--max-sleep-interval", ($SleepInterval * 2))
-    }
-    if ($SleepRequests -gt 0) {
-        $argsList += @("--sleep-requests", $SleepRequests)
-    }
-    $argsList += @("--extractor-retries", "5", "--retry-sleep", "http:exp=1:30")
+    $argsList += @("--embed-thumbnail", "--embed-metadata", "--abort-on-error")
     $cookieStore = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\cookies'
     $hostName = try { ([uri]$Url).Host } catch { $null }
-    $siteName = if ($hostName) { $hostName } else { 'site' }
-    $mode = if ($isVideo) { 'video' } else { 'song' }
-    $archivePath = $null
-    if (-not $NoArchive) {
-        if ($Archive) {
-            $archivePath = if ([System.IO.Path]::IsPathRooted($Archive)) { $Archive } else { Join-Path (Get-Location).Path $Archive }
-        } elseif ($hostName) {
-            $archivePath = Join-Path (Get-Location) ".$hostName.$mode.downloaded.txt"
-        } else {
-            $archivePath = Join-Path (Get-Location) ".$mode.downloaded.txt"
-        }
-        $argsList += @("--download-archive", $archivePath)
-    }
     function Get-UsedCookie {
         if ($c) {
             $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
@@ -425,75 +248,9 @@ function global:yt {
         }
         return $null
     }
-    $isProfile = ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip)/') -and
-                 ($Url -match '(tiktok\.com/@|youtube\.com/(c/|channel/|@|playlist|user/)|instagram\.com/|x\.com/|twitter\.com/)')
-    $archiveSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-    if ($archivePath -and (Test-Path -LiteralPath $archivePath)) {
-        $stale = 0
-        $presentIds = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
-        foreach ($f in (Get-ChildItem -Path . -File -ErrorAction SilentlyContinue)) {
-            foreach ($m in [regex]::Matches($f.Name, '\d{6,}')) { [void]$presentIds.Add($m.Value) }
-        }
-        foreach ($line in [System.IO.File]::ReadAllLines($archivePath)) {
-            $t = $line.Trim()
-            if (-not $t -or $t.StartsWith('#')) { continue }
-            $sp = $t.LastIndexOf(' ')
-            if ($sp -ge 0) { $t = $t.Substring($sp + 1) }
-            if (-not $t) { continue }
-            if ($presentIds.Contains($t)) { [void]$archiveSet.Add($t) } else { $stale++ }
-        }
-        if ($stale -gt 0) {
-            Write-Host "yt: pruning $stale archive entries whose files are no longer here." -ForegroundColor DarkGray
-            if ($archiveSet.Count -gt 0) {
-                $keep = foreach ($line in [System.IO.File]::ReadAllLines($archivePath)) {
-                    $t = $line.Trim()
-                    if (-not $t -or $t.StartsWith('#')) { $line; continue }
-                    $sp = $t.LastIndexOf(' ')
-                    $id = if ($sp -ge 0) { $t.Substring($sp + 1) } else { $t }
-                    if ($archiveSet.Contains($id)) { $line }
-                }
-                Set-Content -LiteralPath $archivePath -Value $keep -Encoding utf8
-            } else {
-                Remove-Item -LiteralPath $archivePath -Force
-            }
-        }
-    }
-    function Test-Downloaded {
-        param([string]$Id)
-        if (-not $Id) { return $false }
-        if ($archiveSet.Contains($Id)) { return $true }
-        return [bool](Get-ChildItem -Path . -Filter "*$Id*" -File -ErrorAction SilentlyContinue)
-    }
-    function Save-PhotoPosts {
-        param([string[]]$Ids)
-        $saved = 0
-        $notphoto = @()
-        foreach ($pid2 in $Ids) {
-            $vidUrl = "$($Url.TrimEnd('/'))/video/$pid2"
-            $imgs = Get-TikTokPhotoPost -Url $vidUrl
-            if (-not $imgs -or $imgs.Count -eq 0) { $notphoto += $pid2; continue }
-            $title = Get-TikTokPostDesc -Url $vidUrl
-            if (-not $title) { $title = "TikTok photo post $pid2" }
-            Write-Host "Photo post $pid2 - $title ($($imgs.Count) image(s))" -ForegroundColor Cyan
-            if (Save-TikTokPhotoPost -Url $vidUrl -BaseName "$title [$pid2]") {
-                $saved++
-                if ($archivePath) { Add-Content -LiteralPath $archivePath -Value "tiktok $pid2" -Encoding utf8 }
-            } else {
-                $notphoto += $pid2
-            }
-            Start-Sleep -Milliseconds 400
-        }
-        if ($saved -gt 0) { Write-Host "`nyt: saved $saved photo post(s) as images." -ForegroundColor Green }
-        if ($notphoto.Count -gt 0) { Write-Host "yt: $($notphoto.Count) item(s) were not photo posts: $($notphoto -join ', ')" -ForegroundColor DarkGray }
-        $script:photoStillFailed = $notphoto
-        return $saved
-    }
     if ($N -gt 0) {
-        Write-Host "`nScanning $siteName (first $N items)..." -ForegroundColor DarkGray
-        $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s", "-I", ":$N")
-        $scanCookie = Get-UsedCookie
-        if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
-        $entries = & $ytdlp @scanArgs $Url
+        Write-Host "`nScanning playlist (first $N items)..." -ForegroundColor DarkGray
+        $entries = & $ytdlp --flat-playlist --print "%(playlist_index)s|||%(id)s|||%(title)s" -I ":$N" $Url 2>$null
         $missing = @()
         $found = @()
         foreach ($entry in $entries) {
@@ -502,7 +259,8 @@ function global:yt {
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
             $title = $parts[2].Trim()
-            if (Test-Downloaded -Id $vidId) {
+            $match = Get-ChildItem -Path . -Filter "*$vidId*" -ErrorAction SilentlyContinue
+            if ($match) {
                 $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             } else {
                 $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
@@ -516,7 +274,7 @@ function global:yt {
             foreach ($f in $found) { Write-Host "  [$($f.Index)] $($f.Title)" -ForegroundColor DarkGray }
         }
         if ($totalMissing -eq 0) {
-            Write-Host "`nAll $N items already in this folder." -ForegroundColor Yellow
+            Write-Host "`nAll $N songs already in this folder." -ForegroundColor Yellow
             $nextStart = $N + 1
             $nextEnd = $N * 2
             $resp = Read-Host "Download next $N after item $N? (y/N)"
@@ -525,80 +283,10 @@ function global:yt {
         } else {
             Write-Host "`nMissing ($totalMissing):" -ForegroundColor Cyan
             foreach ($m in $missing) { Write-Host "  [$($m.Index)] $($m.Title)" -ForegroundColor White }
-            $resp = Read-Host "`nDownload these $totalMissing items? (Y/n)"
-            if ($resp -eq 'n') { $global:LASTEXITCODE = 0; return }
+            $resp = Read-Host "`nDownload these $totalMissing songs? (Y/n)"
+            if ($resp -eq 'n') { return }
             $indices = ($missing | ForEach-Object { $_.Index }) -join ','
             $argsList += @("-I", $indices)
-        }
-    } elseif ($isProfile) {
-        Write-Host "`nNo -N given - diffing the whole $siteName profile against this folder..." -ForegroundColor DarkGray
-        $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s")
-        $scanCookie = Get-UsedCookie
-        if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
-        $entries = & $ytdlp @scanArgs $Url
-        $missing = @()
-        $found = @()
-        foreach ($entry in $entries) {
-            $parts = $entry -split '\|\|\|', 3
-            if ($parts.Count -lt 3) { continue }
-            $idx = $parts[0].Trim()
-            $vidId = $parts[1].Trim()
-            $title = $parts[2].Trim()
-            if (Test-Downloaded -Id $vidId) {
-                $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
-            } else {
-                $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
-            }
-        }
-        Write-Host ""
-        if ($found.Count -gt 0) {
-            Write-Host "Already present ($($found.Count) of $($found.Count + $missing.Count)):" -ForegroundColor Green
-            foreach ($f in $found) { Write-Host "  [$($f.Index)] $($f.Title)" -ForegroundColor DarkGray }
-        }
-        if ($missing.Count -eq 0) {
-            Write-Host "`nNothing left to download from $siteName." -ForegroundColor Yellow
-            $global:LASTEXITCODE = 0
-            return
-        }
-        Write-Host "`nMissing ($($missing.Count)):" -ForegroundColor Cyan
-        foreach ($m in $missing) { Write-Host "  [$($m.Index)] $($m.Title)" -ForegroundColor White }
-        $resp = Read-Host "`nDownload these $($missing.Count) items? (Y/n)"
-        if ($resp -eq 'n') { $global:LASTEXITCODE = 0; return }
-        $indices = ($missing | ForEach-Object { $_.Index }) -join ','
-        $argsList += @("-I", $indices)
-    }
-    if ($Photos) {
-        if ($hostName -notmatch 'tiktok\.com') {
-            Write-Warning "yt: -Photos only applies to TikTok photo posts."
-        } else {
-            $probeUrl = $Url
-            if ($Url -match '/video/(\d+)') {
-                $probeUrl = $Url -replace '/video/\d+.*$', "/video/$($Matches[1])"
-            }
-            Write-Host "`nPhoto-post mode: pulling any photo/slideshow items yt-dlp would fail on..." -ForegroundColor Cyan
-            $probeArgs = @("--flat-playlist", "--no-warnings", "--print", "%(id)s")
-            if ($N -gt 0) { $probeArgs += @("-I", ":$N") }
-            $probeCookie = Get-UsedCookie
-            if ($probeCookie) { $probeArgs += @("--cookies", $probeCookie) }
-            $allIds = @(& $ytdlp @probeArgs $probeUrl 2>$null)
-            $photoCount = 0
-            foreach ($pid2 in $allIds) {
-                $id2 = $pid2.Trim()
-                if (-not $id2) { continue }
-                if (Test-Downloaded -Id $id2) { continue }
-                $vidUrl = if ($Url -match '/video/(\d+)') { $Url } else { "$($Url.TrimEnd('/'))/video/$id2" }
-                $imgs = Get-TikTokPhotoPost -Url $vidUrl
-                if (-not $imgs -or $imgs.Count -eq 0) { continue }
-                $title = Get-TikTokPostDesc -Url $vidUrl
-                if (-not $title) { $title = "TikTok photo post $id2" }
-                Write-Host "Photo post $id2 - $title ($($imgs.Count) image(s))" -ForegroundColor Cyan
-                if (Save-TikTokPhotoPost -Url $vidUrl -BaseName "$title [$id2]") {
-                    $photoCount++
-                    if ($archivePath) { Add-Content -LiteralPath $archivePath -Value "tiktok $id2" -Encoding utf8 }
-                }
-                Start-Sleep -Milliseconds 400
-            }
-            if ($photoCount -gt 0) { Write-Host "`nyt: saved $photoCount photo post(s)." -ForegroundColor Green }
         }
     }
     if ($N -ge 0) { $argsList += $Url }
@@ -609,9 +297,6 @@ function global:yt {
         Write-Host "[SONG]" -ForegroundColor Magenta -NoNewline
     }
     Write-Host " $Url" -ForegroundColor White
-    if ($archivePath) {
-        Write-Host "yt: archive $(Split-Path $archivePath -Leaf)" -ForegroundColor DarkCyan
-    }
     function Invoke-Dl {
         $script:usedCookie = Get-UsedCookie
         $dlArgs = @($argsList)
@@ -619,97 +304,32 @@ function global:yt {
             $dlArgs += @("--cookies", $script:usedCookie)
             Write-Host "yt: using cookies from $(Split-Path $script:usedCookie -Leaf)" -ForegroundColor DarkCyan
         } else {
-            $hint = if ($hostName -match 'tiktok|instagram|facebook') {
-                "log in on $siteName and export cookies, or expect 403"
-            } else {
-                "export cookies, or expect 403"
-            }
-            Write-Host "yt: no cookies found for $siteName - unauthenticated; $hint" -ForegroundColor Yellow
+            Write-Host "yt: no cookies found for $hostName - unauthenticated; 403 likely" -ForegroundColor Yellow
         }
-        # stderr goes to a temp file so we can parse which IDs failed (photo posts) while
-        # stdout (progress) still streams live to the console. Errors are replayed after.
-        $errFile = Join-Path $env:TEMP ("yt_err_{0}.txt" -f ([guid]::NewGuid().ToString('N')))
-        & $ytdlp @dlArgs 2> $errFile
-        $script:ytErrFile = $errFile
-        $script:ytErrLines = @()
-        if (Test-Path -LiteralPath $errFile) {
-            $script:ytErrLines = @([System.IO.File]::ReadAllLines($errFile))
-            Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue
-        }
-        return
-    }
-    function Write-ErrLines {
-        if (-not $script:ytErrLines) { return }
-        foreach ($l in $script:ytErrLines) {
-            if ($l -match '\S') { Write-Host $l -ForegroundColor Red }
-        }
-    }
-    function Get-FailedIds {
-        # ids from "ERROR: [TikTok] <id>: ..." lines, so we can try the photo fallback
-        $ids = @()
-        if (-not $script:ytErrLines) { return $ids }
-        foreach ($line in $script:ytErrLines) {
-            $m = [regex]::Match($line, '^\[?\w*\]?\s*ERROR:\s*\[[^\]]+\]\s*(\d{6,})\s*:')
-            if ($m.Success) { $ids += $m.Groups[1].Value }
-        }
-        return $ids
+        & $ytdlp @dlArgs
     }
     Invoke-Dl
-    $dlExit = $LASTEXITCODE
-    $failedIds = @(Get-FailedIds)
-    $script:photoStillFailed = @()
-    if ($failedIds.Count -gt 0 -and $hostName -match 'tiktok\.com') {
-        Write-Host "`n$($failedIds.Count) item(s) yt-dlp could not fetch; trying photo mode (yt-dlp has no slideshow support)..." -ForegroundColor Cyan
-        $n = Save-PhotoPosts -Ids $failedIds
-        if ($n -gt 0 -and $script:photoStillFailed.Count -eq 0) {
-            # Every failure was a photo post that we saved as images - that is a success.
-            $dlExit = 0
-            $script:ytErrLines = @()
-        } elseif ($n -gt 0) {
-            # Drop the "No video formats found" noise for the ones we did save.
-            $stillBad = $script:photoStillFailed -join '|'
-            $script:ytErrLines = @($script:ytErrLines | Where-Object { $_ -notmatch $stillBad })
-        }
-    }
-    if ($useIgnore) {
-        # --ignore-errors means the run continued past failures, so a non-zero exit is
-        # "some items failed", not "cookies are stale". Do not prompt to refresh cookies.
-        Write-ErrLines
-        if ($dlExit -ne 0) {
-            Write-Host "`nSome items failed (yt-dlp exit $dlExit) - the rest downloaded fine." -ForegroundColor Yellow
-            if ($archivePath) {
-                Write-Host "  rerun yt to retry only the failures; $(Split-Path $archivePath -Leaf) records what succeeded." -ForegroundColor DarkGray
-            }
-        }
-    } elseif ($dlExit -ne 0) {
-        Write-ErrLines
+    if ($LASTEXITCODE -ne 0) {
         $attempts = 0
         while ($attempts -lt 3) {
-            Write-Host "`nDownload failed - $siteName refused it (rate limit, geo-block, or expired cookies)." -ForegroundColor Yellow
-            $r = Read-Host "Open $siteName to refresh cookies? (Y/n)"
+            Write-Host "`nDownload failed - YouTube likely blocked it." -ForegroundColor Yellow
+            $r = Read-Host "Open the link to export/re-export cookies? (Y/n)"
             if ($r -ne 'n') { Start-Process $Url }
-            $r2 = Read-Host "Cookies refreshed? Try again? (y/N)"
+            $r2 = Read-Host "Exported cookies? Try again? (y/N)"
             if ($r2 -ne 'y') { break }
-                $attempts++
-            if ($SleepInterval -gt 0) { Start-Sleep -Seconds 10 }
+            $attempts++
             Invoke-Dl
-            Write-ErrLines
             if ($LASTEXITCODE -eq 0) { Write-Host "Download OK." -ForegroundColor Green; break }
         }
-        if ($attempts -ge 3) {
-            Write-Host "Gave up after 3 attempts - save cookies in the download folder or pass -c, then rerun yt." -ForegroundColor Red
-        }
+        if ($attempts -ge 3) { Write-Host "Gave up after 3 attempts - save cookies in the download folder or pass -c, then rerun yt." -ForegroundColor Red }
     }
-    if ($script:usedCookie -and -not $script:usedCookie.StartsWith($cookieStore, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if ($LASTEXITCODE -eq 0 -and $script:usedCookie -and -not $script:usedCookie.StartsWith($cookieStore, [System.StringComparison]::OrdinalIgnoreCase)) {
         $storeHost = $hostName
         if (-not $storeHost) { $storeHost = ($script:usedCookie | Split-Path -Leaf) -replace '_cookies\.txt$', '' }
         New-Item -ItemType Directory -Path $cookieStore -Force | Out-Null
         Copy-Item -LiteralPath $script:usedCookie -Destination (Join-Path $cookieStore "${storeHost}_cookies.txt") -Force
         Write-Host "yt: stored cookies for $storeHost" -ForegroundColor DarkCyan
     }
-    # Surface the real result to the caller instead of yt-dlp's raw exit code.
-    $global:LASTEXITCODE = $dlExit
-    return
 }
 function global:sf { sempath find @args }
 function global:sg {
