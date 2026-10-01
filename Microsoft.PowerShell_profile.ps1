@@ -511,7 +511,11 @@ function global:yt {
             # Audio is present (or archived) but no image: only a photo post can be in
             # this state, since ordinary video posts never gain a matching image file.
             # Probe it - cheap, and bounded to candidates rather than every post.
-            if (Test-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id") { return $false }
+            # -ErrorAction Stop is load-bearing: a wrong command name here would
+            # otherwise fail silently, return falsy, and mark EVERY candidate complete
+            # - i.e. quietly disable the whole dissociation path with no symptom.
+            $imgs = Get-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id" -ErrorAction Stop
+            if ($imgs) { return $false }
         }
         return $true
     }
