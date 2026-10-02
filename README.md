@@ -44,6 +44,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `cdh` | Display session history (list of recent directories) |
 | `gs` | `git status` |
 | `gsall` | Check git status of all repos under the tracked roots |
+| `tc` | `timer clock` — full-screen digital terminal wall clock |
 | `uprof` | Reload `$PROFILE` (auto-cleans removed functions) |
 | `upkey` | Restart AutoHotkey (stop all AHK processes, run `merge.py`, relaunch `STD_HotKeys.ahk`) |
 | `ow` | Manage OpenWhispr pm2 services (start/restart, or `nuke`) |
@@ -603,6 +604,32 @@ each git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules`
 and repos ignored by a parent repo (via that parent's `.gitignore`) are skipped.
 Prints a summary line (`N repos (X dirty, Y clean) - Zs`) followed by a table
 with the tracked file count per repo.
+
+---
+
+### `tc` — Terminal clock
+
+```powershell
+tc [<args>...]
+```
+
+Shortcut for `timer clock` — a full-screen digital wall clock from the `timer`
+Python CLI that updates every second. Press `q` or `Esc` to exit and print a
+summary. Args pass straight through, so the display flags are available as-is:
+`tc -12 -d`, `tc --utc`, `tc -S`.
+
+| Flag | Effect |
+|------|--------|
+| `-s` / `--seconds`, `-S` / `--no-seconds` | Show or hide seconds (default: show) |
+| `-12` / `--twelve`, `-24` / `--twenty-four` | 12-hour with AM/PM, or 24-hour (default) |
+| `-d` / `--date` | Show the date below the clock |
+| `--utc` | UTC instead of local time |
+
+In-clock keys: `Space`/`p` pause, `s` toggle seconds, `t` toggle 12h/24h, `d`
+toggle date. Note there is no `--12`; the format flags are `-12` and `--twelve`.
+
+Only the `clock` subcommand is wrapped — `timer run`, `schedule`, `showcase`,
+`test`, and `config` still need the full `timer` name.
 
 ---
 

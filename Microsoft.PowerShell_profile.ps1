@@ -1774,3 +1774,4 @@ function Write-Text {
 }
 Set-Alias -Name wt -Value Write-Text
 
+function global:tc { timer clock @args }
