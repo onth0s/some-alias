@@ -38,17 +38,21 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
     $filesCount = @(git -C $repo ls-files 2>$null).Count
     $lastUpdatedRaw = git -C $repo log -1 --format=%ct 2>$null | Select-Object -First 1
     $lastUpdated = 0
+    $lastUpdatedHuman = ''
     if ($lastUpdatedRaw -and [long]::TryParse($lastUpdatedRaw.Trim(), [ref]$lastUpdated)) {
-        # keep as parsed
-    } else {
-        $lastUpdated = 0
+        try {
+            $lastUpdatedHuman = [DateTimeOffset]::FromUnixTimeSeconds($lastUpdated).ToLocalTime().ToString('yyyy-MM-dd HH:mm')
+        } catch {
+            $lastUpdatedHuman = ''
+        }
     }
     [PSCustomObject]@{
-        RootIdx     = [array]::IndexOf($roots, $root)
-        Repo        = if ($repo -eq $root) { Split-Path $repo -Leaf } else { $repo.Substring($root.Length).TrimStart('\') }
-        Dirty       = $dirty
-        Files       = $filesCount
-        LastUpdated = $lastUpdated
+        RootIdx         = [array]::IndexOf($roots, $root)
+        Repo            = if ($repo -eq $root) { Split-Path $repo -Leaf } else { $repo.Substring($root.Length).TrimStart('\') }
+        Dirty           = $dirty
+        Files           = $filesCount
+        LastUpdated     = $lastUpdated
+        LastUpdatedHuman = $lastUpdatedHuman
     }
 }
 }
@@ -88,14 +92,18 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
     if (-not $first) { '─' * 60 }
     $first = $false
     '{0} ({1})' -f (Split-Path $roots[$i] -Leaf), $group.Count
+    $timeWidth = [Math]::Max(4, (($group | ForEach-Object { $_.LastUpdatedHuman.Length } | Measure-Object -Maximum).Maximum))
     $group | ForEach-Object {
         [PSCustomObject]@{
             Repo   = $_.Repo
             Status = if ($_.Dirty) { "$($PSStyle.Foreground.Red)DIRTY$($PSStyle.Reset)" } else { "$($PSStyle.Foreground.Green)CLEAN$($PSStyle.Reset)" }
+            Time   = $_.LastUpdatedHuman
             Files  = $_.Files
         }
     } | Format-Table @{ Label = 'Repo'; Expression = 'Repo'; Width = $maxRepoLen },
                      @{ Label = 'Status'; Expression = 'Status'; Width = 7 },
+                     @{ Label = 'Time'; Expression = 'Time'; Width = $timeWidth },
+                     @{ Label = ''; Expression = { ' ' } },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
 if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci$($PSStyle.Reset)" }
