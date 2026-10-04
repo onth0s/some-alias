@@ -1,3 +1,12 @@
+param(
+    [Alias('S', 'files')]
+    [switch]$SortByFiles,
+    [Alias('T', 'time')]
+    [switch]$SortByTime,
+    [Alias('X')]
+    [switch]$Reverse
+)
+
 $roots = @(
     'C:\Users\Leonardo\001\00__DEV'
     'C:\Users\Leonardo\Documents\WindowsPowerShell'
@@ -16,7 +25,7 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
     while ($parent -and $parent.StartsWith($root) -and -not $ignored) {
         if (Test-Path -LiteralPath (Join-Path $parent '.git')) {
             $rel = $repo.Substring($parent.Length).TrimStart('\').Replace('\', '/')
-            git -C $parent check-ignore --no-index --quiet $rel
+            git -C $parent check-ignore --no-index --quiet $rel 2>$null
             if ($LASTEXITCODE -eq 0) { $ignored = $true }
             break
         }
@@ -26,22 +35,55 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
 
     $porcelain = git -C $repo status --porcelain 2>$null
     $dirty = @($porcelain).Count -gt 0
+    $filesCount = @(git -C $repo ls-files 2>$null).Count
+    $lastUpdatedRaw = git -C $repo log -1 --format=%ct 2>$null | Select-Object -First 1
+    $lastUpdated = 0
+    if ($lastUpdatedRaw -and [long]::TryParse($lastUpdatedRaw.Trim(), [ref]$lastUpdated)) {
+        # keep as parsed
+    } else {
+        $lastUpdated = 0
+    }
     [PSCustomObject]@{
-        RootIdx = [array]::IndexOf($roots, $root)
-        Repo  = if ($repo -eq $root) { Split-Path $repo -Leaf } else { $repo.Substring($root.Length).TrimStart('\') }
-        Dirty = $dirty
-        Files = @(git -C $repo ls-files).Count
+        RootIdx     = [array]::IndexOf($roots, $root)
+        Repo        = if ($repo -eq $root) { Split-Path $repo -Leaf } else { $repo.Substring($root.Length).TrimStart('\') }
+        Dirty       = $dirty
+        Files       = $filesCount
+        LastUpdated = $lastUpdated
     }
 }
 }
 $sw.Stop()
-$count = @($results).Count
-$dirtyCount = @($results | Where-Object Dirty).Count
+
+# Apply sorting
+$display = $results
+if ($SortByFiles -and -not $SortByTime) {
+    if ($Reverse) {
+        $display = $results | Sort-Object Files -Descending
+    } else {
+        $display = $results | Sort-Object Files
+    }
+} elseif ($SortByTime -and -not $SortByFiles) {
+    if ($Reverse) {
+        $display = $results | Sort-Object LastUpdated
+    } else {
+        $display = $results | Sort-Object LastUpdated -Descending
+    }
+} elseif ($SortByFiles -and $SortByTime) {
+    # If both specified, prefer sorting by files
+    if ($Reverse) {
+        $display = $results | Sort-Object Files -Descending
+    } else {
+        $display = $results | Sort-Object Files
+    }
+}
+
+$count = @($display).Count
+$dirtyCount = @($display | Where-Object Dirty).Count
 "{0} repos ({1} dirty, {2} clean) - {3:0.0}s" -f $count, $dirtyCount, ($count - $dirtyCount), $sw.Elapsed.TotalSeconds
-$maxRepoLen = [Math]::Max(4, (($results | ForEach-Object { $_.Repo.Length } | Measure-Object -Maximum).Maximum))
+$maxRepoLen = [Math]::Max(4, (($display | ForEach-Object { $_.Repo.Length } | Measure-Object -Maximum).Maximum))
 $first = $true
 for ($i = 0; $i -lt $roots.Count; $i++) {
-    $group = @($results | Where-Object RootIdx -eq $i)
+    $group = @($display | Where-Object RootIdx -eq $i)
     if ($group.Count -eq 0) { continue }
     if (-not $first) { '─' * 60 }
     $first = $false
