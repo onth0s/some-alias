@@ -39,11 +39,33 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
     $lastUpdatedRaw = git -C $repo log -1 --format=%ct 2>$null | Select-Object -First 1
     $lastUpdated = 0
     $lastUpdatedHuman = ''
+    $deltaHuman = ''
+    $now = [DateTimeOffset]::Now
     if ($lastUpdatedRaw -and [long]::TryParse($lastUpdatedRaw.Trim(), [ref]$lastUpdated)) {
         try {
-            $lastUpdatedHuman = [DateTimeOffset]::FromUnixTimeSeconds($lastUpdated).ToLocalTime().ToString('yyyy-MM-dd HH:mm')
+            $lastUpdatedDto = [DateTimeOffset]::FromUnixTimeSeconds($lastUpdated).ToLocalTime()
+            $lastUpdatedHuman = $lastUpdatedDto.ToString('yyyy-MM-dd HH:mm')
+            $delta = $now - $lastUpdatedDto
+            $totalMinutes = [Math]::Floor($delta.TotalMinutes)
+            $years = [Math]::Floor($totalMinutes / (525600))
+            $rem = $totalMinutes % (525600)
+            $months = [Math]::Floor($rem / (43800))
+            $rem2 = $rem % (43800)
+            $days = [Math]::Floor($rem2 / (1440))
+            $rem3 = $rem2 % (1440)
+            $hours = [Math]::Floor($rem3 / 60)
+            $mins = $rem3 % 60
+            $parts = @()
+            if ($years -gt 0) { $parts += "$years" + ($years -eq 1 ? 'y' : 'y') }
+            if ($months -gt 0 -or $years -gt 0) { if ($months -gt 0) { $parts += "$months" + ($months -eq 1 ? 'm' : 'm') } }
+            if ($days -gt 0 -or $months -gt 0 -or $years -gt 0) { if ($days -gt 0) { $parts += "$days" + ($days -eq 1 ? 'd' : 'd') } }
+            if ($hours -gt 0 -or $parts.Count -gt 0) { if ($hours -gt 0) { $parts += "$hours" + ($hours -eq 1 ? 'h' : 'h') } }
+            $parts += "$mins" + ($mins -eq 1 ? 'm' : 'm')
+            if ($parts.Count -gt 3) { $parts = $parts[0..2] }
+            $deltaHuman = ($parts -join ' ')
         } catch {
             $lastUpdatedHuman = ''
+            $deltaHuman = ''
         }
     }
     [PSCustomObject]@{
@@ -53,6 +75,7 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
         Files           = $filesCount
         LastUpdated     = $lastUpdated
         LastUpdatedHuman = $lastUpdatedHuman
+        DeltaHuman      = $deltaHuman
     }
 }
 }
@@ -92,18 +115,20 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
     if (-not $first) { '─' * 60 }
     $first = $false
     '{0} ({1})' -f (Split-Path $roots[$i] -Leaf), $group.Count
-    $timeWidth = [Math]::Max(4, (($group | ForEach-Object { $_.LastUpdatedHuman.Length } | Measure-Object -Maximum).Maximum))
+    $deltaWidth = [Math]::Max(5, (($group | ForEach-Object { $_.DeltaHuman.Length } | Measure-Object -Maximum).Maximum))
     $group | ForEach-Object {
         [PSCustomObject]@{
             Repo   = $_.Repo
             Status = if ($_.Dirty) { "$($PSStyle.Foreground.Red)DIRTY$($PSStyle.Reset)" } else { "$($PSStyle.Foreground.Green)CLEAN$($PSStyle.Reset)" }
             Time   = $_.LastUpdatedHuman
+            Delta  = $_.DeltaHuman
             Files  = $_.Files
         }
     } | Format-Table @{ Label = 'Repo'; Expression = 'Repo'; Width = $maxRepoLen },
                      @{ Label = 'Status'; Expression = 'Status'; Width = 7 },
-                     @{ Label = 'Time'; Expression = 'Time'; Width = $timeWidth },
-                     @{ Label = ''; Expression = { ' ' } },
+                     @{ Label = 'Time'; Expression = 'Time'; Width = 16 },
+                     @{ Label = 'Delta'; Expression = 'Delta'; Width = $deltaWidth; Alignment = 'Right' },
+                     @{ Label = ''; Expression = { ' ' }; Width = 1 },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
 if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci$($PSStyle.Reset)" }
