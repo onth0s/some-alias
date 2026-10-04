@@ -127,8 +127,9 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
     } | Format-Table @{ Label = 'Repo'; Expression = 'Repo'; Width = $maxRepoLen },
                      @{ Label = 'Status'; Expression = 'Status'; Width = 7 },
                      @{ Label = 'Time'; Expression = 'Time'; Width = 16 },
+                     @{ Label = ' '; Expression = { ' ' }; Width = 2 },
                      @{ Label = 'Delta'; Expression = 'Delta'; Width = $deltaWidth; Alignment = 'Left' },
-                     @{ Label = ' '; Expression = { ' ' }; Width = 1 },
+                     @{ Label = '  '; Expression = { '  ' }; Width = 2 },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
 if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci$($PSStyle.Reset)" }
