@@ -210,40 +210,89 @@ function global:Get-CookieHeaderString {
     if ($pairs.Count -eq 0) { return $null }
     return ($pairs -join '; ')
 }
-function global:Get-TikTokPhotoPost {
+function global:Get-TikTokPageClass {
     <#
-        yt-dlp's TikTok extractor has no photo/slideshow support, so those posts fail with
-        "No video formats found!". The image URLs live in the page's __UNIVERSAL_DATA_FOR_REHYDRATION__
-        blob under imagePost.images[]. Returns an array of image URLs, or empty if not a photo post.
+        Classify a fetched TikTok page body.
+        'ok'        : a real post page - the __UNIVERSAL_DATA_FOR_REHYDRATION__/itemStruct data
+                      blob is present, so its content (imagePost present or absent) can be trusted.
+        'transient' : a retry-worthy response - 4xx/5xx status, empty/too-small body (captcha or
+                      challenge stub), or the data blob missing. Callers MUST treat this as
+                      "unknown", never as "confirmed not a photo post".
     #>
-    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 3)
-    $start = -1
-    $html = ''
+    param([string]$Html, [int]$HttpStatus)
+    if ($HttpStatus -eq 401 -or $HttpStatus -eq 403 -or $HttpStatus -eq 429 -or $HttpStatus -ge 500) { return 'transient' }
+    if (-not $Html -or $Html.Length -lt 2000) { return 'transient' }
+    if ($Html -notmatch '__UNIVERSAL_DATA_FOR_REHYDRATION__|itemStruct') { return 'transient' }
+    return 'ok'
+}
+function global:Get-TikTokPostPage {
+    <#
+        Fetch a TikTok post page with retries and exponential backoff + jitter.
+        Returns a PSCustomObject:
+          Html       : last body received ('' when nothing could be read)
+          HttpStatus : last HTTP status code (0 when unknown, e.g. curl fallback)
+          Status     : 'ok' | 'transient' (final classification after all attempts)
+          Attempts   : how many HTTP attempts were made
+    #>
+    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [double]$MaxBackoffSec = 30, [int]$TimeoutSec = 30)
     $headers = @{
         "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         "Referer"    = if ($Referer) { $Referer } else { "https://www.tiktok.com/" }
         "Accept-Language" = "en-US,en;q=0.9"
     }
     $cookieStr = Get-CookieHeaderString
+    $html = ''
+    $status = 0
+    $pageStatus = 'transient'
+    $made = 0
     for ($try = 1; $try -le $Attempts; $try++) {
+        $made++
         $h = @{} + $headers
         if ($cookieStr) { $h["Cookie"] = $cookieStr }
+        $body = ''
         try {
-            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 -Headers $h
-            $html = $resp.Content
+            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec $TimeoutSec -Headers $h
+            $body = [string]$resp.Content
+            $status = [int]$resp.StatusCode
         } catch {
-            $html = ''
+            $status = 0
+            try {
+                $r = $_.Exception.Response
+                if ($r) { $status = [int]$r.StatusCode }
+            } catch { }
         }
-        if (-not $html) { $html = (curl -s -L -A $headers["User-Agent"] $Url 2>&1) | Out-String }
+        if (-not $body) {
+            # curl fallback: some networks block the .NET HTTP client.
+            $body = (curl -s -L -A $headers["User-Agent"] $Url 2>$null) | Out-String
+            if (-not $body -or $body.Trim().Length -eq 0) { $body = '' }
+        }
         # Some responses double-encode the JSON (\" escapes); normalise before searching.
-        if ($html -match '\\"imagePost\\"') { $html = $html -replace '\\"', '"' }
-        $start = $html.IndexOf('"imagePost"')
-        if ($start -lt 0) { $start = $html.IndexOf('imagePost') }
-        if ($start -ge 0) { break }
-        if ($try -lt $Attempts) { Start-Sleep -Seconds (2 * $try) }
+        if ($body -match '\\"imagePost\\"') { $body = $body -replace '\\"', '"' }
+        $html = $body
+        $pageStatus = Get-TikTokPageClass -Html $body -HttpStatus $status
+        if ($pageStatus -eq 'ok') { break }
+        if ($try -lt $Attempts) {
+            # Exponential backoff with jitter: 2-4s, 4-8s, 8-16s, ... capped at MaxBackoffSec.
+            $base = [Math]::Min($MaxBackoffSec, 2 * [Math]::Pow(2.0, $try))
+            $jitter = Get-Random -Minimum 0 -Maximum 2000
+            Start-Sleep -Seconds ([double]($base / 2.0) + [double]$jitter / 1000.0)
+        }
     }
+    [PSCustomObject]@{
+        Html       = $html
+        HttpStatus = $status
+        Status     = $pageStatus
+        Attempts   = $made
+    }
+}
+function global:Parse-TikTokPhotoUrls {
+    <# Extract the full-res image URLs from a fetched TikTok post page.
+       Returns @() when the page carries no imagePost payload. #>
+    param([Parameter(Mandatory)][string]$Html)
+    $start = $Html.IndexOf('"imagePost"')
+    if ($start -lt 0) { $start = $Html.IndexOf('imagePost') }
     if ($start -lt 0) { return @() }
-    $block = $html.Substring($start, [Math]::Min(40000, $html.Length - $start))
+    $block = $Html.Substring($start, [Math]::Min(40000, $Html.Length - $start))
     $arrStart = $block.IndexOf('"images":[')
     if ($arrStart -lt 0) {
         $arrStart = $block.IndexOf('images":[')
@@ -276,27 +325,50 @@ function global:Get-TikTokPhotoPost {
     }
     return $urls
 }
+function global:Get-TikTokPhotoPost {
+    <#
+        yt-dlp's TikTok extractor has no photo/slideshow support, so those posts fail with
+        "No video formats found!". The image URLs live in the page's __UNIVERSAL_DATA_FOR_REHYDRATION__
+        blob under imagePost.images[]. Returns an array of image URLs, or empty if not a photo post.
+    #>
+    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30)
+    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec
+    if ($page.Status -ne 'ok') { return @() }
+    return @(Parse-TikTokPhotoUrls -Html $page.Html)
+}
+function global:Test-TikTokPhotoPost {
+    <#
+        Three-way detection of a TikTok post's type, with the same retries as Get-TikTokPostPage.
+        Returns a PSCustomObject:
+          IsPhoto  : $true (photo post) | $false (confirmed video post) | $null (undetermined)
+          Status   : 'photo' | 'video' | 'undetermined'
+          Images   : image URLs when 'photo', else @()
+          Attempts : HTTP attempts made
+        'undetermined' means every attempt hit a transient response (rate limit, challenge stub,
+        network error). Callers must treat it as UNKNOWN - never as "confirmed video".
+    #>
+    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30)
+    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec
+    if ($page.Status -ne 'ok') {
+        return [PSCustomObject]@{ IsPhoto = $null; Status = 'undetermined'; Images = @(); Attempts = $page.Attempts }
+    }
+    $urls = @(Parse-TikTokPhotoUrls -Html $page.Html)
+    if ($urls.Count -gt 0) {
+        return [PSCustomObject]@{ IsPhoto = $true; Status = 'photo'; Images = $urls; Attempts = $page.Attempts }
+    }
+    # A real post page with no imagePost payload: confirmed not a photo post.
+    return [PSCustomObject]@{ IsPhoto = $false; Status = 'video'; Images = @(); Attempts = $page.Attempts }
+}
 function global:Get-TikTokPostDesc {
     <# The caption of a TikTok post, read from the page HTML. yt-dlp cannot supply this for
        photo posts because extraction fails before the title is parsed. #>
-    param([Parameter(Mandatory)][string]$Url, [int]$Attempts = 3)
-    $html = ''
-    $headers = @{
-        "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        "Referer"    = "https://www.tiktok.com/"
-    }
-    $cookieStr = Get-CookieHeaderString
-    for ($try = 1; $try -le $Attempts; $try++) {
-        $h = @{} + $headers
-        if ($cookieStr) { $h["Cookie"] = $cookieStr }
-        try {
-            $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 -Headers $h
-            $html = $resp.Content
-        } catch { $html = '' }
-        if ($html -and $html -match '"desc"\s*:\s*"') { break }
-        if ($try -lt $Attempts) { Start-Sleep -Seconds (2 * $try) }
-    }
-    if (-not $html) { return $null }
+    param([Parameter(Mandatory)][string]$Url, [int]$Attempts = 3, [int]$TimeoutSec = 30)
+    # Best-effort caption fetch through the shared page fetcher (retries + backoff).
+    # A transient page yields $null and callers fall back to a generic title.
+    $page = Get-TikTokPostPage -Url $Url -Referer "https://www.tiktok.com/" -Attempts $Attempts -TimeoutSec $TimeoutSec
+    if ($page.Status -ne 'ok') { return $null }
+    $html = $page.Html
+    if (-not $html -or $html -notmatch '"desc"\s*:\s*"') { return $null }
     $m = [regex]::Match($html, '"desc"\s*:\s*"((?:[^"\\]|\\.)*)"')
     if (-not $m.Success) { return $null }
     $d = $m.Groups[1].Value -replace '\\u002F', '/' -replace '\\"', '"' -replace '\\n', ' ' -replace '\\u0026', '&'
@@ -307,12 +379,21 @@ function global:Save-TikTokPhotoPost {
     <# Downloads a TikTok photo/slideshow post as individual images. Returns $true if anything was written. #>
     param(
         [Parameter(Mandatory)][string]$Url,
-        [string]$BaseName = (Split-Path $Url -Leaf)
+        [string]$BaseName = (Split-Path $Url -Leaf),
+        # Pre-fetched image URLs (from Test-TikTokPhotoPost). When supplied, the page is
+        # NOT re-fetched - this halves HTTP traffic in batch runs. Omit to fetch.
+        [string[]]$Images,
+        [int]$PhotoAttempts = 5,
+        [int]$TimeoutSec = 30
     )
-    $urls = Get-TikTokPhotoPost -Url $Url
+    $urls = if ($Images) { @($Images) } else { @(Get-TikTokPhotoPost -Url $Url -Attempts $PhotoAttempts -TimeoutSec $TimeoutSec) }
     if (-not $urls -or $urls.Count -eq 0) { return $false }
     $safe = ($BaseName -replace '[\\/:*?"<>|]', '_')
     if ($safe.Length -gt 120) { $safe = $safe.Substring(0, 120).Trim() }
+    $dlHeaders = @{
+        "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "Referer"    = "https://www.tiktok.com/"
+    }
     $written = 0
     $n = 0
     foreach ($u in $urls) {
@@ -320,15 +401,25 @@ function global:Save-TikTokPhotoPost {
         $ext = [System.IO.Path]::GetExtension(($u -split '\?')[0])
         if (-not $ext -or $ext.Length -gt 5) { $ext = ".jpg" }
         $dest = Join-Path (Get-Location).Path ("{0} [{1:d2}]{2}" -f $safe, $n, $ext)
-        try {
-            Invoke-WebRequest -Uri $u -OutFile $dest -UseBasicParsing -TimeoutSec 60 -Headers @{
-                "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                "Referer"    = "https://www.tiktok.com/"
+        $ok = $false
+        $errMsg = ''
+        # Per-image retries: image CDN URLs are signed and short-lived, and TikTok rate-limits
+        # bursts of direct image fetches, so one 403 must not kill the whole slideshow.
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+                Invoke-WebRequest -Uri $u -OutFile $dest -UseBasicParsing -TimeoutSec 60 -Headers $dlHeaders
+                $ok = $true
+                break
+            } catch {
+                $errMsg = $_.Exception.Message
+                if ($attempt -lt 3) { Start-Sleep -Seconds (2 * $attempt) }
             }
+        }
+        if ($ok) {
             $written++
             Write-Host "  saved $(Split-Path $dest -Leaf)" -ForegroundColor DarkGray
-        } catch {
-            Write-Host "  image $n failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        } else {
+            Write-Host "  image $n failed: $errMsg" -ForegroundColor Yellow
         }
     }
     return ($written -gt 0)
@@ -353,9 +444,14 @@ function global:yt {
         [switch]$NoArchive,
         [switch]$Photos,
         [switch]$Images,
-        [switch]$NoImages
+        [switch]$NoImages,
+    [Alias('F','Force','ForceDownload')]
+    [switch]$Yes
     )
     $ytdlp = "C:\Users\Leonardo\001\00__DEV\zz - VAR\yt-dlp\yt-dlp.exe"
+    # Run start marker: the -v audio-stub cleanup below only ever removes audio files
+    # written at or after this instant, so pre-existing files can never be touched.
+    $runStart = Get-Date
     $isVideo = $v -or $video
     if ($Url -and $Url -match '^\d+$' -and -not ($Url -match '^https?://')) {
         $N = [int]$Url
@@ -375,8 +471,10 @@ function global:yt {
     # through to the generic extractor and dies with a bare "ERROR: Unsupported URL:"
     # that carries no [TikTok] <id> tag, so the photo fallback can never see it.
     # Normalising to /video/ is what makes a single image+audio post resolvable.
+    $photoIdFromUrl = $null
     if ($Url -match '/photo/(\d+)') {
-        $Url = $Url -replace '/photo/\d+', "/video/$($Matches[1])"
+        $photoIdFromUrl = $Matches[1]
+        $Url = $Url -replace '/photo/\d+', "/video/$($photoIdFromUrl)"
     }
     $isTiktok = ($Url -match 'tiktok\.com')
     # Photos are dissociated by default on TikTok: image posts ship as audio-only m4a
@@ -384,9 +482,46 @@ function global:yt {
     # original alongside. -NoImages forces the old audio-only behaviour.
     $trackImages = ($isTiktok -and -not $NoImages)
     if ($NoImages) { $trackImages = $false }
+    # Early detection: is this a photo/slideshow post? Three-way result:
+    #  - /photo/ URL: DEFINITIVE photo post - no probe needed.
+    #  - /video/ URL: probed via Test-TikTokPhotoPost (retries + backoff), which yields
+    #    'photo', 'video' (a confirmed real page without an imagePost payload), or
+    #    'undetermined' (every attempt was a transient response). 'undetermined' is
+    #    NEVER treated as 'video' - the single-post -v guardrail below resolves it by
+    #    attempting the image fetch before falling back to the yt-dlp flow.
+    #  - profiles/playlists: no single post to probe; batch image dissociation happens
+    #    after the yt-dlp run, only for items whose image is still missing.
+    $isPhotoPost = [bool]$photoIdFromUrl
+    $photoPostImages = @()
+    $photoDetection = 'none'   # none | definitive | photo | video | undetermined
+    if ($isTiktok -and $Url -match '/(video|photo)/\d+') {
+        if ($photoIdFromUrl) {
+            $photoDetection = 'definitive'
+            $photoPostImages = @(Get-TikTokPhotoPost -Url $Url)
+        } else {
+            $det = Test-TikTokPhotoPost -Url $Url
+            $photoDetection = $det.Status
+            if ($det.IsPhoto) {
+                $isPhotoPost = $true
+                $photoPostImages = @($det.Images)
+            }
+        }
+    }
     $argsList = @()
-    if ($isVideo) {
+    # -v on TikTok: photo posts expose no video stream, so a plain bestvideo+bestaudio/best
+    # request degrades to their audio track - a song with the picture embedded, exactly what
+    # -v must never produce. Constraining the fallback to vcodec!=none makes photo posts
+    # fail LOUDLY with "Requested format is not available" instead of silently becoming mp3s,
+    # and the failedIds photo fallback below then saves them as full-res images (the error
+    # noise is cleared when every failure was a saved photo post). Song mode is unaffected.
+    # A real video always has a video-codec format, so it can never hit this error; anything
+    # unexpected stays a visible error, never a silent skip.
+    if ($isVideo -and $isTiktok -and -not $isPhotoPost) {
+        $argsList += @("-f", "bestvideo+bestaudio/best[vcodec!=none]")
+    } elseif ($isVideo -and -not $isPhotoPost) {
         $argsList += @("-f", "bestvideo+bestaudio/best")
+    } elseif ($isVideo -and $isPhotoPost) {
+        # For photo posts with -v, we handle as images-only; no yt-dlp video args needed
     } else {
         $argsList += @("-x", "--audio-format", "mp3", "-f", "bestaudio/best")
     }
@@ -415,7 +550,9 @@ function global:yt {
         } else {
             $archivePath = Join-Path (Get-Location) ".$mode.downloaded.txt"
         }
-        $argsList += @("--download-archive", $archivePath)
+        if (-not ($isVideo -and $isPhotoPost)) {
+            $argsList += @("--download-archive", $archivePath)
+        }
     }
     function Get-UsedCookie {
         if ($c) {
@@ -510,30 +647,75 @@ function global:yt {
         if ($trackImages -and -not (Test-ImagesDone -Id $Id)) {
             # Audio is present (or archived) but no image: only a photo post can be in
             # this state, since ordinary video posts never gain a matching image file.
-            # Probe it - cheap, and bounded to candidates rather than every post.
-            # -ErrorAction Stop is load-bearing: a wrong command name here would
-            # otherwise fail silently, return falsy, and mark EVERY candidate complete
-            # - i.e. quietly disable the whole dissociation path with no symptom.
-            $imgs = Get-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id" -ErrorAction Stop
-            if ($imgs) { return $false }
+            # Tri-state probe (bounded attempts: this runs in the scan phase):
+            #  - photo        -> not complete (images still missing).
+            #  - video        -> complete (confirmed real page, no imagePost payload).
+            #  - undetermined -> NOT complete. Every attempt was transient (rate limit /
+            #    challenge stub), so the type is UNKNOWN. Returning $true here would skip
+            #    the post forever - the exact mis-routing this guardrail exists to prevent.
+            $det = Test-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id" -Attempts 3 -TimeoutSec 15
+            if ($det.IsPhoto -ne $false) { return $false }
         }
         return $true
     }
     function Save-PhotoPosts {
+        # Tri-state batch saver. Confirmed video posts are skipped; photo posts are saved
+        # (reusing the already-fetched URLs, no second page fetch); undetermined posts get
+        # the image fetch attempted anyway as a guardrail - a transient probe must never
+        # silently route a photo post to "not a photo". Undetermined items whose save fails
+        # are reported separately (not lumped in with "were not photo posts") and stay
+        # failures so a rerun retries them.
         param([string[]]$Ids)
         $saved = 0
         $notphoto = @()
+        $unknown = @()
+        $total = @($Ids).Count
+        $idx = 0
         foreach ($pid2 in $Ids) {
+            $idx++
             if (Test-ImagesDone -Id $pid2) { continue }
+            Write-Host "  [$idx/$total] probing $pid2..." -ForegroundColor DarkGray
             $vidUrl = "$($Url.TrimEnd('/'))/video/$pid2"
-            $imgs = Get-TikTokPhotoPost -Url $vidUrl
-            if (-not $imgs -or $imgs.Count -eq 0) { $notphoto += $pid2; continue }
-            $title = Get-TikTokPostDesc -Url $vidUrl
+            # Bounded budget per item: 2 quick attempts here; the save below carries the
+            # full retry budget. A caption is only fetched for confirmed photo posts -
+            # undetermined items use a generic title instead of burning 3 more fetches.
+            $det = Test-TikTokPhotoPost -Url $vidUrl -Attempts 2 -TimeoutSec 15
+            if ($det.IsPhoto -eq $false) { $notphoto += $pid2; continue }
+            if ($det.IsPhoto) {
+                $title = Get-TikTokPostDesc -Url $vidUrl -Attempts 2 -TimeoutSec 15
+            } else {
+                $title = $null
+            }
             if (-not $title) { $title = "TikTok photo post $pid2" }
-            Write-Host "Photo post $pid2 - $title ($($imgs.Count) image(s))" -ForegroundColor Cyan
-            if (Save-TikTokPhotoPost -Url $vidUrl -BaseName "$title [$pid2]") {
+            $imgCount = if ($det.Images.Count -gt 0) { "$($det.Images.Count)" } else { '?' }
+            if ($det.IsPhoto -eq $null) {
+                Write-Host "Photo post $pid2 - $title ($imgCount image(s), type unconfirmed - attempting fetch)" -ForegroundColor Yellow
+            } else {
+                Write-Host "Photo post $pid2 - $title ($($det.Images.Count) image(s))" -ForegroundColor Cyan
+            }
+            $saveArgs = @{ Url = $vidUrl; BaseName = "$title [$pid2]"; TimeoutSec = 15 }
+            if ($det.Images.Count -gt 0) { $saveArgs.Images = $det.Images }
+            if (Save-TikTokPhotoPost @saveArgs) {
                 $saved++
                 if ($archivePath) { Add-Content -LiteralPath $archivePath -Value "tiktok $pid2" -Encoding utf8 }
+                if ($isVideo) {
+                    # -v mode wants images, not songs: remove the audio-only stub yt-dlp may
+                    # have downloaded for this photo post (e.g. when the match-filter did not
+                    # apply). Tightly guarded: audio extensions only, never image-named files,
+                    # and only files written by this run - pre-existing files are untouchable.
+                    Get-ChildItem -Path . -File -ErrorAction SilentlyContinue |
+                        Where-Object {
+                            $_.Name -match [regex]::Escape($pid2) -and
+                            $_.Extension -match '^\.(mp3|m4a|opus|ogg|mka|wav)$' -and
+                            $_.Name -notmatch '\[\d+\]\s*\[\d{2,}\]' -and
+                            $_.LastWriteTime -ge $runStart
+                        } | ForEach-Object {
+                            Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+                            Write-Host "  removed audio stub $($_.Name)" -ForegroundColor DarkGray
+                        }
+                }
+            } elseif ($det.IsPhoto -eq $null) {
+                $unknown += $pid2
             } else {
                 $notphoto += $pid2
             }
@@ -541,7 +723,8 @@ function global:yt {
         }
         if ($saved -gt 0) { Write-Host "`nyt: saved $saved photo post(s) as images." -ForegroundColor Green }
         if ($notphoto.Count -gt 0) { Write-Host "yt: $($notphoto.Count) item(s) were not photo posts: $($notphoto -join ', ')" -ForegroundColor DarkGray }
-        $script:photoStillFailed = $notphoto
+        if ($unknown.Count -gt 0) { Write-Host "yt: $($unknown.Count) item(s) could not be confirmed (rate limit?) - rerun yt to retry: $($unknown -join ', ')" -ForegroundColor Yellow }
+        $script:photoStillFailed = @($notphoto) + @($unknown)
         return $saved
     }
     if ($N -gt 0) {
@@ -575,14 +758,18 @@ function global:yt {
             Write-Host "`nAll $N items already in this folder." -ForegroundColor Yellow
             $nextStart = $N + 1
             $nextEnd = $N * 2
-            $resp = Read-Host "Download next $N after item $N? (y/N)"
-            if ($resp -ne 'y') { return }
+            if (-not $Yes) {
+                $resp = Read-Host "Download next $N after item $N? (y/N)"
+                if ($resp -ne 'y' -and $resp -ne 'Y') { return }
+            }
             $argsList += @("-I", "${nextStart}:${nextEnd}")
         } else {
             Write-Host "`nMissing ($totalMissing):" -ForegroundColor Cyan
             foreach ($m in $missing) { Write-Host "  [$($m.Index)] $($m.Title)" -ForegroundColor White }
-            $resp = Read-Host "`nDownload these $totalMissing items? (Y/n)"
-            if ($resp -eq 'n') { $global:LASTEXITCODE = 0; return }
+            if (-not $Yes) {
+                $resp = Read-Host "`nDownload these $totalMissing items? (Y/n)"
+                if ($resp -eq 'n' -or $resp -eq 'N') { $global:LASTEXITCODE = 0; return }
+            }
             $indices = ($missing | ForEach-Object { $_.Index }) -join ','
             $argsList += @("-I", $indices)
         }
@@ -618,8 +805,10 @@ function global:yt {
         }
         Write-Host "`nMissing ($($missing.Count)):" -ForegroundColor Cyan
         foreach ($m in $missing) { Write-Host "  [$($m.Index)] $($m.Title)" -ForegroundColor White }
-        $resp = Read-Host "`nDownload these $($missing.Count) items? (Y/n)"
-        if ($resp -eq 'n') { $global:LASTEXITCODE = 0; return }
+        if (-not $Yes) {
+            $resp = Read-Host "`nDownload these $($missing.Count) items? (Y/n)"
+            if ($resp -eq 'n' -or $resp -eq 'N') { $global:LASTEXITCODE = 0; return }
+        }
         $indices = ($missing | ForEach-Object { $_.Index }) -join ','
         $argsList += @("-I", $indices)
     }
@@ -648,7 +837,7 @@ function global:yt {
                 $title = Get-TikTokPostDesc -Url $vidUrl
                 if (-not $title) { $title = "TikTok photo post $id2" }
                 Write-Host "Photo post $id2 - $title ($($imgs.Count) image(s))" -ForegroundColor Cyan
-                if (Save-TikTokPhotoPost -Url $vidUrl -BaseName "$title [$id2]") {
+                if (Save-TikTokPhotoPost -Url $vidUrl -BaseName "$title [$id2]" -Images $imgs) {
                     $photoCount++
                     if ($archivePath) { Add-Content -LiteralPath $archivePath -Value "tiktok $id2" -Encoding utf8 }
                 }
@@ -657,6 +846,53 @@ function global:yt {
             if ($photoCount -gt 0) { Write-Host "`nyt: saved $photoCount photo post(s)." -ForegroundColor Green }
         }
     }
+    # Handle single-post -v case with guardrails:
+    #  - confirmed photo post: download the full-res images ONLY (no audio - the mp3 would
+    #    carry the picture only as embedded cover art).
+    #  - undetermined (TikTok kept returning transient responses after all retries): attempt
+    #    the image fetch as the guardrail before any fallback, so a rate-limited probe can
+    #    never quietly mis-route a photo post to the audio-only download.
+    #  - confirmed photo post whose image fetch still failed: fail loudly instead of
+    #    shipping the audio-only file. Rerunning yt retries (the archive was not updated).
+    if ($isTiktok -and $isVideo -and -not $Photos -and -not $NoImages -and $N -le 0 -and -not $isProfile -and $Url -match '/(video|photo)/\d+' -and ($isPhotoPost -or $photoDetection -eq 'undetermined')) {
+        $singleId = $null
+        if ($Url -match '/video/(\d+)') { $singleId = $Matches[1] }
+        if (-not $singleId -and $photoIdFromUrl) { $singleId = $photoIdFromUrl }
+        if (-not $isPhotoPost) {
+            Write-Host "yt: post type unconfirmed after retries (TikTok rate limit / challenge). Attempting image fetch as guardrail..." -ForegroundColor Yellow
+        }
+        $title = $null
+        try {
+            $title = Get-TikTokPostDesc -Url $Url
+        } catch {
+            $title = $null
+        }
+        if (-not $title) { $title = "TikTok photo post $singleId" }
+        $imgCount = if ($photoPostImages.Count -gt 0) { "$($photoPostImages.Count)" } else { '?' }
+        Write-Host "`nPhoto post $singleId - $title ($imgCount image(s))" -ForegroundColor Cyan
+        $savedP = $false
+        if ($singleId) {
+            $singleSave = @{ Url = $Url; BaseName = "$title [$singleId]" }
+            if ($photoPostImages.Count -gt 0) { $singleSave.Images = $photoPostImages }
+            $savedP = Save-TikTokPhotoPost @singleSave
+            if ($savedP -and $archivePath) {
+                Add-Content -LiteralPath $archivePath -Value "tiktok $singleId" -Encoding utf8
+            }
+        }
+        if ($savedP) {
+            Write-Host "`nyt: saved 1 photo post(s) as images (-v)." -ForegroundColor Green
+            $global:LASTEXITCODE = 0
+            return
+        }
+        if ($isPhotoPost) {
+            Write-Host "yt: photo post confirmed but image download failed (rate limit?). Rerun yt to retry - the audio fallback was skipped on purpose." -ForegroundColor Yellow
+            $global:LASTEXITCODE = 1
+            return
+        }
+        # Undetermined and the image fetch found nothing: treat it as a regular post.
+        Write-Host "yt: no images found; falling back to the normal download." -ForegroundColor Yellow
+    }
+
     if ($N -ge 0) { $argsList += $Url }
     Write-Host "`nyt-dlp " -ForegroundColor DarkGray -NoNewline
     if ($isVideo) {
@@ -665,8 +901,10 @@ function global:yt {
         Write-Host "[SONG]" -ForegroundColor Magenta -NoNewline
     }
     Write-Host " $Url" -ForegroundColor White
-    if ($archivePath) {
+    if ($archivePath -and -not ($isVideo -and $isPhotoPost)) {
         Write-Host "yt: archive $(Split-Path $archivePath -Leaf)" -ForegroundColor DarkCyan
+    } elseif ($archivePath -and ($isVideo -and $isPhotoPost)) {
+        # already handled
     }
     function Invoke-Dl {
         $script:usedCookie = Get-UsedCookie
@@ -719,10 +957,22 @@ function global:yt {
         $imgIds = @()
         if ($Url -match '/video/(\d+)') { $imgIds += $Matches[1] }
         foreach ($m in $missing) { $imgIds += $m.Id }
+        # Only probe candidates that could be photo posts: an id with a video file on disk
+        # is a real video - probing it wastes HTTP retries and invites rate-limiting.
+        $imgIds = @($imgIds | Select-Object -Unique | Where-Object {
+            $id = $_
+            -not (Get-ChildItem -Path . -File -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -match [regex]::Escape($id) -and $_.Extension -match '^\.(mp4|mkv|webm|mov)$'
+            })
+        })
         if ($imgIds.Count -gt 0) {
-            $n = Save-PhotoPosts -Ids ($imgIds | Select-Object -Unique)
+            $n = Save-PhotoPosts -Ids $imgIds
             if ($n -gt 0) {
-                Write-Host "yt: saved $n full-res image(s) alongside the audio." -ForegroundColor Green
+                if ($isVideo) {
+                    Write-Host "yt: saved $n photo post(s) as images (-v)." -ForegroundColor Green
+                } else {
+                    Write-Host "yt: saved $n full-res image(s) alongside the audio." -ForegroundColor Green
+                }
             }
         }
     }
@@ -741,6 +991,15 @@ function global:yt {
             $script:ytErrLines = @($script:ytErrLines | Where-Object { $_ -notmatch $stillBad })
         }
     }
+    # Safety net for the -v match-filter: any missing item that produced no file at all
+    # and is not a saved photo post gets reported LOUDLY (with its id) instead of passing
+    # quietly. Untouched by the archive, so a rerun retries exactly these items.
+    if ($missing -and $missing.Count -gt 0) {
+        $unaccounted = @($missing | Where-Object { -not (Test-Downloaded -Id $_.Id) -and -not (Test-ImagesDone -Id $_.Id) })
+        if ($unaccounted.Count -gt 0) {
+            Write-Host "yt: $($unaccounted.Count) item(s) produced no file and are not photo posts - rerun yt to retry: $(($unaccounted | ForEach-Object { $_.Id }) -join ', ')" -ForegroundColor Yellow
+        }
+    }
     if ($useIgnore) {
         # --ignore-errors means the run continued past failures, so a non-zero exit is
         # "some items failed", not "cookies are stale". Do not prompt to refresh cookies.
@@ -754,8 +1013,13 @@ function global:yt {
     } elseif ($dlExit -ne 0) {
         Write-ErrLines
         Write-Host "`nDownload failed - $siteName refused it (rate limit, geo-block, or expired cookies)." -ForegroundColor Yellow
+        if ($Yes) {
+            # Forced mode: report the failure, don't block on a prompt.
+            $global:LASTEXITCODE = $dlExit
+            return
+        }
         $r = Read-Host "Open $siteName to refresh cookies, then rerun yt? (Y/n)"
-        if ($r -eq 'n') { return }
+        if ($r -eq 'n' -or $r -eq 'N') { return }
         Start-Process $Url
         # No auto-retry: --cookies is read once at startup, so retrying in-session
         # re-runs against the same stale jar. Rerunning yt re-reads the jar.
