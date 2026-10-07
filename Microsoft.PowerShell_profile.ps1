@@ -527,7 +527,8 @@ function global:yt {
     }
     $argsList += @("--embed-thumbnail", "--embed-metadata", "-w", "-c")
     # Multi-item runs should not die on one guardrail-blocked video; single videos should fail loudly.
-    $multiItem = ($N -gt 0) -or ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip)/\d')
+    # stories/highlights/share/s are single items (e.g. IG highlight reels), not profiles.
+    $multiItem = ($N -gt 0) -or ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip|stories|highlights|share|s)/\d')
     $useIgnore = if ($IgnoreErrors) { $true } elseif ($AbortOnError) { $false } else { $multiItem }
     if ($useIgnore) { $argsList += "--ignore-errors" } else { $argsList += "--abort-on-error" }
     if ($SleepInterval -gt 0) {
@@ -577,7 +578,7 @@ function global:yt {
         }
         return $null
     }
-    $isProfile = ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip)/') -and
+    $isProfile = ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip|stories|highlights|share|s)/') -and
                  ($Url -match '(tiktok\.com/@|youtube\.com/(c/|channel/|@|playlist|user/)|instagram\.com/|x\.com/|twitter\.com/)')
     $archiveSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     if ($archivePath -and (Test-Path -LiteralPath $archivePath)) {
@@ -732,11 +733,14 @@ function global:yt {
         $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s", "-I", ":$N")
         $scanCookie = Get-UsedCookie
         if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
-        $entries = & $ytdlp @scanArgs $Url
+        $entries = & $ytdlp @scanArgs $Url 2>&1
+        $scanExit = $LASTEXITCODE
+        $scanParsed = @($entries | Where-Object { "$_" -match '\|\|\|' }).Count
+        $scanFailed = ($scanParsed -eq 0)
         $missing = @()
         $found = @()
         foreach ($entry in $entries) {
-            $parts = $entry -split '\|\|\|', 3
+            $parts = "$entry" -split '\|\|\|', 3
             if ($parts.Count -lt 3) { continue }
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
@@ -747,14 +751,25 @@ function global:yt {
                 $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             }
         }
+        if ($scanFailed) {
+            # Scan yielded zero parseable rows (auth failure, rate limit, bad URL).
+            # Never claim "already downloaded" - fall through to the direct download
+            # so yt-dlp's real error + the cookie-refresh prompt surface.
+            Write-Host "yt: scan failed (exit $scanExit, no entries parsed) - falling through to direct download." -ForegroundColor Yellow
+        }
         $M = $found.Count
         $totalMissing = $missing.Count
         Write-Host ""
-        if ($M -gt 0) {
+        if ($scanFailed) {
+            # Skip the -I diff; download the URL as-is below.
+        }
+        elseif ($M -gt 0) {
             Write-Host "Already downloaded ($M):" -ForegroundColor Green
             foreach ($f in $found) { Write-Host "  [$($f.Index)] $($f.Title)" -ForegroundColor DarkGray }
         }
-        if ($totalMissing -eq 0) {
+        if ($scanFailed) {
+            # Skip the -I diff; download the URL as-is below.
+        } elseif ($totalMissing -eq 0) {
             Write-Host "`nAll $N items already in this folder." -ForegroundColor Yellow
             $nextStart = $N + 1
             $nextEnd = $N * 2
@@ -778,11 +793,14 @@ function global:yt {
         $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s")
         $scanCookie = Get-UsedCookie
         if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
-        $entries = & $ytdlp @scanArgs $Url
+        $entries = & $ytdlp @scanArgs $Url 2>&1
+        $scanExit = $LASTEXITCODE
+        $scanParsed = @($entries | Where-Object { "$_" -match '\|\|\|' }).Count
+        $scanFailed = ($scanParsed -eq 0)
         $missing = @()
         $found = @()
         foreach ($entry in $entries) {
-            $parts = $entry -split '\|\|\|', 3
+            $parts = "$entry" -split '\|\|\|', 3
             if ($parts.Count -lt 3) { continue }
             $idx = $parts[0].Trim()
             $vidId = $parts[1].Trim()
@@ -793,12 +811,21 @@ function global:yt {
                 $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             }
         }
+        if ($scanFailed) {
+            # Scan yielded zero parseable rows (auth failure, rate limit, bad URL).
+            # Never claim "nothing left" - fall through to the direct download
+            # so yt-dlp's real error + the cookie-refresh prompt surface.
+            Write-Host "yt: scan failed (exit $scanExit, no entries parsed) - falling through to direct download." -ForegroundColor Yellow
+        }
         Write-Host ""
-        if ($found.Count -gt 0) {
+        if (-not $scanFailed -and $found.Count -gt 0) {
             Write-Host "Already present ($($found.Count) of $($found.Count + $missing.Count)):" -ForegroundColor Green
             foreach ($f in $found) { Write-Host "  [$($f.Index)] $($f.Title)" -ForegroundColor DarkGray }
         }
-        if ($missing.Count -eq 0) {
+        if ($scanFailed) {
+            # Skip the -I diff; download the URL as-is below.
+        }
+        elseif ($missing.Count -eq 0) {
             Write-Host "`nNothing left to download from $siteName." -ForegroundColor Yellow
             $global:LASTEXITCODE = 0
             return
