@@ -13,6 +13,7 @@ $roots = @(
     'C:\Program Files\Blender Foundation\Blender 5.2\5.2\scripts\startup'
     'C:\Users\Leonardo\001\TXT\Nothing, really'
     'C:\Users\Leonardo\001\TXT\GMRTI'
+    'C:\Users\Leonardo\001\GEN\'
 )
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 $results = foreach ($root in $roots) {
