@@ -4,7 +4,10 @@ param(
     [Alias('T', 'time')]
     [switch]$SortByTime,
     [Alias('X')]
-    [switch]$Reverse
+    [switch]$Reverse,
+    [Alias('J', 'jobs')]
+    [int]$ThrottleLimit = 16,
+    [switch]$Serial
 )
 
 $roots = @(
@@ -16,7 +19,12 @@ $roots = @(
     'C:\Users\Leonardo\001\GEN\'
 )
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$results = foreach ($root in $roots) {
+if ($ThrottleLimit -lt 1) { $ThrottleLimit = 1 }
+if ($ThrottleLimit -gt 64) { $ThrottleLimit = 64 }
+$now = [DateTimeOffset]::Now
+
+# Phase 1: discovery (serial, cheap). Phase 2 below parallelizes the git calls.
+$repoList = foreach ($root in $roots) {
 foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filter .git -Depth 3 -ErrorAction SilentlyContinue) {
     if ($g.FullName -match '\\(node_modules|\.git)\\') { continue }
     $repo = $g.Parent.FullName
@@ -34,19 +42,28 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
     }
     if ($ignored) { continue }
 
-    $porcelain = git -C $repo status --porcelain 2>$null
+    [PSCustomObject]@{
+        RootIdx  = [array]::IndexOf($roots, $root)
+        FullPath = $repo
+        Root     = $root
+    }
+}
+}
+
+$task = {
+    param($FullPath, $RootIdx, $Root, $Now)
+    $porcelain = git -C $FullPath status --porcelain 2>$null
     $dirty = @($porcelain).Count -gt 0
-    $filesCount = @(git -C $repo ls-files 2>$null).Count
-    $lastUpdatedRaw = git -C $repo log -1 --format=%ct 2>$null | Select-Object -First 1
+    $filesCount = @(git -C $FullPath ls-files 2>$null).Count
+    $lastUpdatedRaw = git -C $FullPath log -1 --format=%ct 2>$null | Select-Object -First 1
     $lastUpdated = 0
     $lastUpdatedHuman = ''
     $deltaHuman = ''
-    $now = [DateTimeOffset]::Now
     if ($lastUpdatedRaw -and [long]::TryParse($lastUpdatedRaw.Trim(), [ref]$lastUpdated)) {
         try {
             $lastUpdatedDto = [DateTimeOffset]::FromUnixTimeSeconds($lastUpdated).ToLocalTime()
             $lastUpdatedHuman = $lastUpdatedDto.ToString('yyyy-MM-dd HH:mm')
-            $delta = $now - $lastUpdatedDto
+            $delta = $Now - $lastUpdatedDto
             $totalMinutes = [Math]::Floor($delta.TotalMinutes)
             $years = [Math]::Floor($totalMinutes / (525600))
             $rem = $totalMinutes % (525600)
@@ -70,8 +87,8 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
         }
     }
     [PSCustomObject]@{
-        RootIdx         = [array]::IndexOf($roots, $root)
-        Repo            = if ($repo -eq $root) { Split-Path $repo -Leaf } else { $repo.Substring($root.Length).TrimStart('\') }
+        RootIdx         = $RootIdx
+        Repo            = if ($FullPath -eq $Root) { Split-Path $FullPath -Leaf } else { $FullPath.Substring($Root.Length).TrimStart('\') }
         Dirty           = $dirty
         Files           = $filesCount
         LastUpdated     = $lastUpdated
@@ -79,6 +96,30 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
         DeltaHuman      = $deltaHuman
     }
 }
+
+# Phase 2: per-repo git calls (the slow part) via runspace pool
+if ($Serial -or $ThrottleLimit -le 1 -or @($repoList).Count -le 1) {
+    $results = @(foreach ($r in $repoList) {
+        & $task $r.FullPath $r.RootIdx $r.Root $now
+    })
+} else {
+    $pool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $ThrottleLimit)
+    $pool.Open()
+    try {
+        $jobs = @(foreach ($r in $repoList) {
+            $ps = [powershell]::Create()
+            $ps.RunspacePool = $pool
+            [void]$ps.AddScript($task).AddArgument($r.FullPath).AddArgument($r.RootIdx).AddArgument($r.Root).AddArgument($now)
+            [PSCustomObject]@{ PS = $ps; Handle = $ps.BeginInvoke() }
+        })
+        $results = @(foreach ($j in $jobs) {
+            try { $j.PS.EndInvoke($j.Handle) }
+            finally { $j.PS.Dispose() }
+        })
+    } finally {
+        $pool.Close()
+        $pool.Dispose()
+    }
 }
 $sw.Stop()
 
