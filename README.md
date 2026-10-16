@@ -494,6 +494,24 @@ string as content into a file literally named after your content. Check the orde
   (`SupportsShouldProcess`, so `-WhatIf` works).
 - Missing parent directories are created automatically.
 
+#### Handling strings with mixed quotes (`'` and `"`)
+
+PowerShell treats the backtick (`` ` ``) as an escape character rather than a string delimiter, so enclosing strings in backticks is not valid syntax. When writing content that contains both single and double quotes (e.g. YAML, JSON, code snippets), use a PowerShell **here-string** to avoid escaping:
+
+```powershell
+# Double-quoted here-string @"..."@ (expands $variables):
+wt @"
+some_string: "you can't just say that!"
+"@ example.yaml
+
+# Single-quoted here-string @'...'@ (literal string, no variable expansion):
+wt @'
+some_string: "you can't just say that!"
+'@ example.yaml
+```
+
+> **Note:** In PowerShell syntax, the opening `@"` or `@'` must be immediately followed by a newline, and the closing `"@` or `'@` must sit at the start of its line.
+
 ---
 
 ### `opf` — Open path (arg or clipboard)
@@ -593,17 +611,28 @@ Shortcut for `exit`. (`exit` is a keyword, not a command, so this is a function 
 ### `gsall` — Check all repos
 
 ```powershell
-gsall
+gsall [-S | -files] [-T | -time] [-X]
 ```
 
-Runs `check-repos.ps1`, which scans five roots — `00__DEV`, this repo
+Runs `check-repos.ps1`, which scans six roots — `00__DEV`, this repo
 (`Documents\WindowsPowerShell`), the Blender startup scripts dir
-(`...\Blender 5.2\5.2\scripts\startup`), `001\TXT\Nothing, really`, and
-`001\TXT\GMRTI` — recursively up to depth 3, and reports
+(`...\Blender 5.2\5.2\scripts\startup`), `001\TXT\Nothing, really`,
+`001\TXT\GMRTI`, and `001\GEN\` — recursively up to depth 3, and reports
 each git repo's status as `CLEAN` or `DIRTY`. Repos nested under `node_modules`
 and repos ignored by a parent repo (via that parent's `.gitignore`) are skipped.
-Prints a summary line (`N repos (X dirty, Y clean) - Zs`) followed by a table
-with the tracked file count per repo.
+
+Prints a summary line (`N repos (X dirty, Y clean) - Zs`), followed by per-root
+tables showing `Repo`, `Status` (green/red), `Time` (last commit timestamp),
+`Delta` (elapsed time), and tracked `Files` count. If all repos are clean, prints
+`All gucci`.
+
+#### Sorting flags
+
+| Flag | Meaning |
+|------|---------|
+| `-S` / `-files` | Sort repos by tracked file count (default: descending) |
+| `-T` / `-time` | Sort repos by last commit timestamp (default: descending / newest first) |
+| `-X` | Reverse the sort direction |
 
 ---
 
