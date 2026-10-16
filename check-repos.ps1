@@ -174,4 +174,4 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
                      @{ Label = '  '; Expression = { '  ' }; Width = 2 },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
-if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci$($PSStyle.Reset)" }
+if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci.$($PSStyle.Reset)" }
