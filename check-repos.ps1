@@ -58,7 +58,7 @@ foreach ($g in Get-ChildItem -LiteralPath $root -Directory -Recurse -Force -Filt
             $mins = $rem3 % 60
             $parts = @()
             if ($years -gt 0) { $parts += "$years" + ($years -eq 1 ? 'y' : 'y') }
-            if ($months -gt 0 -or $years -gt 0) { if ($months -gt 0) { $parts += "$months" + ($months -eq 1 ? 'm' : 'm') } }
+            if ($months -gt 0 -or $years -gt 0) { if ($months -gt 0) { $parts += "$months" + ($months -eq 1 ? 'mo' : 'mo') } }
             if ($days -gt 0 -or $months -gt 0 -or $years -gt 0) { if ($days -gt 0) { $parts += "$days" + ($days -eq 1 ? 'd' : 'd') } }
             if ($hours -gt 0 -or $parts.Count -gt 0) { if ($hours -gt 0) { $parts += "$hours" + ($hours -eq 1 ? 'h' : 'h') } }
             $parts += "$mins" + ($mins -eq 1 ? 'm' : 'm')
