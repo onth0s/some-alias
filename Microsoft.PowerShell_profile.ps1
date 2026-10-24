@@ -2066,3 +2066,6 @@ function Write-Text {
 Set-Alias -Name wt -Value Write-Text
 
 function global:tc { timer clock @args }
+# --- qw2: Qwen-Image-2.1 helper (installed by link.ps1) ---
+function global:qw2 { & "C:\Users\Leonardo\001\GEN\stable-diffusion.cpp\qwen-gen.ps1" @args }
+# --- end qw2 ---

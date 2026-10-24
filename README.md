@@ -33,7 +33,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `Save-GotoStore` | Internal helper: write the goto alias store |
 | `Find-GotoAlias` | Internal helper: exact-match lookup in the goto alias store |
 | `op` | Launch opencode |
-| `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
+| `qw2` | Qwen-Image-2.1 generation/editing helper (`qwen-gen.ps1`) || `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
 | `sf` | `sempath find` |
 | `sg` | `sempath get` (or `sempath <args>`) |
 | `HH` | `hermes gateway run -v` |
