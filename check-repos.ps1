@@ -10,6 +10,20 @@ param(
     [switch]$Serial
 )
 
+# PowerShell does not split combined short switches (e.g. -tx into -t -x), so
+# normalize clustered S/T/X flags that landed in $args before defining roots.
+foreach ($token in @($args)) {
+    if ($token -is [string] -and $token -match '^-[stxSTX]{2,}$') {
+        foreach ($ch in $token.Substring(1).ToCharArray()) {
+            switch ($ch.ToString().ToUpperInvariant()) {
+                'S' { $SortByFiles = $true }
+                'T' { $SortByTime = $true }
+                'X' { $Reverse = $true }
+            }
+        }
+    }
+}
+
 $roots = @(
     'C:\Users\Leonardo\001\00__DEV'
     'C:\Users\Leonardo\Documents\WindowsPowerShell'

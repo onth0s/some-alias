@@ -633,6 +633,7 @@ tables showing `Repo`, `Status` (green/red), `Time` (last commit timestamp),
 | `-S` / `-files` | Sort repos by tracked file count (default: descending) |
 | `-T` / `-time` | Sort repos by last commit timestamp (default: descending / newest first) |
 | `-X` | Reverse the sort direction |
+| _clustered_ | Short flags can be combined, e.g. `gsall -tx` (time, reversed) |
 
 ---
 
