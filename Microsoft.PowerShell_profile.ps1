@@ -1661,7 +1661,7 @@ function global:Format-FileSize {
 }
 
 # Renders filesystem items as a fixed-width text table with EXACTLY two spaces
-# between every column — in the header AND in every data row. Every cell is
+# between every column - in the header AND in every data row. Every cell is
 # padded to its column's exact width (Mode 5, LastWriteTime 16, Size 9,
 # Length 10), so each column's text ends at the same x position; numeric
 # columns (Size, Length) and all headers are right-aligned so the 2-space
@@ -2067,5 +2067,5 @@ Set-Alias -Name wt -Value Write-Text
 
 function global:tc { timer clock @args }
 # --- qw2: Qwen-Image-2.1 helper (installed by link.ps1) ---
-function global:qw2 { & "C:\Users\Leonardo\001\GEN\stable-diffusion.cpp\qwen-gen.ps1" @args }
+function global:qw2 { & "C:\Users\Leonardo\001\GEN\Qwen-Image-2.1-GGUF\qwen-gen.ps1" @args }
 # --- end qw2 ---
