@@ -1,4 +1,4 @@
-if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
+﻿if (Test-Path Alias:gp) { Remove-Item Alias:gp -Force }
 
 function global:ConvertFrom-ClipboardPath {
     [CmdletBinding()]
@@ -17,7 +17,7 @@ function global:ConvertFrom-ClipboardPath {
         if (-not $Basic) {
             $out = $out -replace '^[\s\-*>#]+'
             if ($Junk) {
-                $out = $out -replace '^(?:[^\w\s\:\\/]|✓|Success:?\s*Found\s*match:?)+\s*'
+                $out = $out -replace '^(?:[^\w\s\:\\/]|âœ“|Success:?\s*Found\s*match:?)+\s*'
             }
             $out = $out -replace '^~', "$env:USERPROFILE"
             $out = [System.Environment]::ExpandEnvironmentVariables($out)
@@ -2069,3 +2069,9 @@ function global:tc { timer clock @args }
 # --- qw2: Qwen-Image-2.1 helper (installed by link.ps1) ---
 function global:qw2 { & "C:\Users\Leonardo\001\GEN\Qwen-Image-2.1-GGUF\qwen-gen.ps1" @args }
 # --- end qw2 ---
+
+# --- fibo: Fibo2-Edit-Turbo helper (installed by link.ps1) ---
+function global:fibo { & "C:\Users\Leonardo\001\GEN\Fibo2-Edit-Turbo\fibo-gen.ps1" @args }
+# --- end fibo ---
+
+
