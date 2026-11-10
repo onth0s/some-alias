@@ -188,7 +188,28 @@ function global:opf {
     }
     Write-Error "No valid file path in clipboard"
 }
-function global:HH { hermes gateway run -v @args }
+function global:HH {
+    $cmd = if ($args.Count -gt 0) { [string]$args[0] } else { '' }
+    $rest = @()
+    if ($args.Count -gt 1) { $rest = @($args[1..($args.Count - 1)]) }
+    switch ($cmd.ToLowerInvariant()) {
+        'status' {
+            hermes gateway status @rest
+            return
+        }
+        'kill' {
+            hermes gateway stop -y @rest
+            return
+        }
+        'stop' {
+            hermes gateway stop -y @rest
+            return
+        }
+        default {
+            hermes gateway run -v @args
+        }
+    }
+}
 function global:Get-CookieHeaderString {
     <# Builds a "Cookie: k=v; k=v" header from a Netscape-format cookie jar (yt-dlp's format).
        Returns $null when no jar is found. Without cookies TikTok serves a challenge stub

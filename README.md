@@ -36,7 +36,7 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `qw2` | Qwen-Image-2.1 generation/editing helper (`qwen-gen.ps1`) || `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
 | `sf` | `sempath find` |
 | `sg` | `sempath get` (or `sempath <args>`) |
-| `HH` | `hermes gateway run -v` |
+| `HH` | `hermes gateway run -v` (with `status`/`kill`/`stop` subcommands) |
 | `alias` | Universal command lookup |
 | `c` | Alias for `cls` (clear screen) |
 | `ls` | GNU-style flags for `Get-ChildItem` (`-a -l -t -S -X -r -R`; unique-prefix abbrevs) |
@@ -329,13 +329,19 @@ Shortcut for `sempath find`.
 
 ---
 
-### `HH` — Hermes gateway
+### `HH` - Hermes gateway
 
 ```powershell
-HH [<args>...]
+HH [run|status|kill|stop] [<args>...]
 ```
 
-Shortcut for `hermes gateway run -v`.
+Dispatches to `hermes gateway`:
+
+- no subcommand / `run` -> `hermes gateway run -v` (extra args passed through)
+- `status` -> `hermes gateway status`
+- `kill` / `stop` -> `hermes gateway stop -y` (force-stop, no prompt)
+
+Any other first token is passed through to `hermes gateway run -v`.
 
 ---
 
