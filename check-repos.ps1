@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Alias('S', 'files')]
     [switch]$SortByFiles,
     [Alias('T', 'time')]
@@ -33,6 +33,11 @@ $roots = @(
     'C:\Users\Leonardo\001\GEN\'
 )
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
+$red = if ($PSStyle) { $PSStyle.Foreground.Red } else { "$([char]27)[91m" }
+$green = if ($PSStyle) { $PSStyle.Foreground.Green } else { "$([char]27)[92m" }
+$cyan = if ($PSStyle) { $PSStyle.Foreground.Cyan } else { "$([char]27)[96m" }
+$reset = if ($PSStyle) { $PSStyle.Reset } else { "$([char]27)[0m" }
+$div = [string][char]0x2500 * 60
 if ($ThrottleLimit -lt 1) { $ThrottleLimit = 1 }
 if ($ThrottleLimit -gt 64) { $ThrottleLimit = 64 }
 $now = [DateTimeOffset]::Now
@@ -88,11 +93,11 @@ $task = {
             $hours = [Math]::Floor($rem3 / 60)
             $mins = $rem3 % 60
             $parts = @()
-            if ($years -gt 0) { $parts += "$years" + ($years -eq 1 ? 'y' : 'y') }
-            if ($months -gt 0 -or $years -gt 0) { if ($months -gt 0) { $parts += "$months" + ($months -eq 1 ? 'mo' : 'mo') } }
-            if ($days -gt 0 -or $months -gt 0 -or $years -gt 0) { if ($days -gt 0) { $parts += "$days" + ($days -eq 1 ? 'd' : 'd') } }
-            if ($hours -gt 0 -or $parts.Count -gt 0) { if ($hours -gt 0) { $parts += "$hours" + ($hours -eq 1 ? 'h' : 'h') } }
-            $parts += "$mins" + ($mins -eq 1 ? 'm' : 'm')
+            if ($years -gt 0) { $parts += "${years}y" }
+            if ($months -gt 0) { $parts += "${months}mo" }
+            if ($days -gt 0) { $parts += "${days}d" }
+            if ($hours -gt 0) { $parts += "${hours}h" }
+            if ($mins -gt 0 -or $parts.Count -eq 0) { $parts += "${mins}m" }
             if ($parts.Count -gt 3) { $parts = $parts[0..2] }
             $deltaHuman = ($parts -join ' ')
         } catch {
@@ -139,25 +144,10 @@ $sw.Stop()
 
 # Apply sorting
 $display = $results
-if ($SortByFiles -and -not $SortByTime) {
-    if ($Reverse) {
-        $display = $results | Sort-Object Files
-    } else {
-        $display = $results | Sort-Object Files -Descending
-    }
-} elseif ($SortByTime -and -not $SortByFiles) {
-    if ($Reverse) {
-        $display = $results | Sort-Object LastUpdated
-    } else {
-        $display = $results | Sort-Object LastUpdated -Descending
-    }
-} elseif ($SortByFiles -and $SortByTime) {
-    # If both specified, prefer sorting by files
-    if ($Reverse) {
-        $display = $results | Sort-Object Files
-    } else {
-        $display = $results | Sort-Object Files -Descending
-    }
+if ($SortByFiles) {
+    $display = if ($Reverse) { $results | Sort-Object Files } else { $results | Sort-Object Files -Descending }
+} elseif ($SortByTime) {
+    $display = if ($Reverse) { $results | Sort-Object LastUpdated } else { $results | Sort-Object LastUpdated -Descending }
 }
 
 $count = @($display).Count
@@ -168,14 +158,14 @@ $first = $true
 for ($i = 0; $i -lt $roots.Count; $i++) {
     $group = @($display | Where-Object RootIdx -eq $i)
     if ($group.Count -eq 0) { continue }
-    if (-not $first) { '─' * 60 }
+    if (-not $first) { $div }
     $first = $false
     '{0} ({1})' -f (Split-Path $roots[$i] -Leaf), $group.Count
     $deltaWidth = [Math]::Max(5, (($group | ForEach-Object { $_.DeltaHuman.Length } | Measure-Object -Maximum).Maximum))
     $group | ForEach-Object {
         [PSCustomObject]@{
             Repo   = $_.Repo
-            Status = if ($_.Dirty) { "$($PSStyle.Foreground.Red)DIRTY$($PSStyle.Reset)" } else { "$($PSStyle.Foreground.Green)CLEAN$($PSStyle.Reset)" }
+            Status = if ($_.Dirty) { "${red}DIRTY${reset}" } else { "${green}CLEAN${reset}" }
             Time   = $_.LastUpdatedHuman
             Delta  = $_.DeltaHuman
             Files  = $_.Files
@@ -188,4 +178,4 @@ for ($i = 0; $i -lt $roots.Count; $i++) {
                      @{ Label = '  '; Expression = { '  ' }; Width = 2 },
                      @{ Label = 'Files'; Expression = 'Files'; Alignment = 'Right' }
 }
-if ($dirtyCount -eq 0) { "$($PSStyle.Foreground.Cyan)`nAll gucci.$($PSStyle.Reset)" }
+if ($dirtyCount -eq 0) { "${cyan}`nAll gucci.${reset}" }

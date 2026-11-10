@@ -17,7 +17,7 @@ function global:ConvertFrom-ClipboardPath {
         if (-not $Basic) {
             $out = $out -replace '^[\s\-*>#]+'
             if ($Junk) {
-                $out = $out -replace '^(?:[^\w\s\:\\/]|âœ“|Success:?\s*Found\s*match:?)+\s*'
+                $out = $out -replace '^(?:[^\w\s\:\\/]|[\u2713\u2714]|Success:?\s*Found\s*match:?)+\s*'
             }
             $out = $out -replace '^~', "$env:USERPROFILE"
             $out = [System.Environment]::ExpandEnvironmentVariables($out)
@@ -193,6 +193,10 @@ function global:HH {
     $rest = @()
     if ($args.Count -gt 1) { $rest = @($args[1..($args.Count - 1)]) }
     switch ($cmd.ToLowerInvariant()) {
+        'run' {
+            hermes gateway run -v @rest
+            return
+        }
         'status' {
             hermes gateway status @rest
             return
@@ -218,7 +222,20 @@ function global:Get-CookieHeaderString {
     if (-not $CookieFile) {
         $store = Join-Path $env:USERPROFILE "Documents\WindowsPowerShell\cookies"
         $cand = Join-Path $store "${CookieHost}_cookies.txt"
-        if (Test-Path -LiteralPath $cand) { $CookieFile = $cand }
+        if (Test-Path -LiteralPath $cand) {
+            $CookieFile = $cand
+        } else {
+            # Try without leading www. if present
+            $bareHost = $CookieHost -replace '^www\.', ''
+            $candBare = Join-Path $store "${bareHost}_cookies.txt"
+            if (Test-Path -LiteralPath $candBare) {
+                $CookieFile = $candBare
+            } else {
+                # Check current directory
+                $cwdCookie = Get-ChildItem -Path . -Filter "*${bareHost}*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($cwdCookie) { $CookieFile = $cwdCookie.FullName }
+            }
+        }
     }
     if (-not $CookieFile -or -not (Test-Path -LiteralPath $CookieFile)) { return $null }
     try { $lines = Get-Content -LiteralPath $CookieFile -ErrorAction Stop } catch { return $null }
@@ -255,13 +272,20 @@ function global:Get-TikTokPostPage {
           Status     : 'ok' | 'transient' (final classification after all attempts)
           Attempts   : how many HTTP attempts were made
     #>
-    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [double]$MaxBackoffSec = 30, [int]$TimeoutSec = 30)
+    param(
+        [Parameter(Mandatory)][string]$Url,
+        [string]$Referer,
+        [int]$Attempts = 5,
+        [double]$MaxBackoffSec = 30,
+        [int]$TimeoutSec = 30,
+        [string]$CookieFile
+    )
     $headers = @{
         "User-Agent" = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         "Referer"    = if ($Referer) { $Referer } else { "https://www.tiktok.com/" }
         "Accept-Language" = "en-US,en;q=0.9"
     }
-    $cookieStr = Get-CookieHeaderString
+    $cookieStr = Get-CookieHeaderString -CookieFile $CookieFile
     $html = ''
     $status = 0
     $pageStatus = 'transient'
@@ -284,7 +308,11 @@ function global:Get-TikTokPostPage {
         }
         if (-not $body) {
             # curl fallback: some networks block the .NET HTTP client.
-            $body = (curl -s -L -A $headers["User-Agent"] $Url 2>$null) | Out-String
+            # Invoke curl.exe explicitly to avoid alias collision on Windows PowerShell 5.1.
+            $curlArgs = @('-s', '-L', '-A', $headers["User-Agent"])
+            if ($cookieStr) { $curlArgs += @('-H', "Cookie: $cookieStr") }
+            $curlArgs += $Url
+            $body = (& curl.exe @curlArgs 2>$null) | Out-String
             if (-not $body -or $body.Trim().Length -eq 0) { $body = '' }
         }
         # Some responses double-encode the JSON (\" escapes); normalise before searching.
@@ -352,8 +380,8 @@ function global:Get-TikTokPhotoPost {
         "No video formats found!". The image URLs live in the page's __UNIVERSAL_DATA_FOR_REHYDRATION__
         blob under imagePost.images[]. Returns an array of image URLs, or empty if not a photo post.
     #>
-    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30)
-    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec
+    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30, [string]$CookieFile)
+    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec -CookieFile $CookieFile
     if ($page.Status -ne 'ok') { return @() }
     return @(Parse-TikTokPhotoUrls -Html $page.Html)
 }
@@ -368,8 +396,8 @@ function global:Test-TikTokPhotoPost {
         'undetermined' means every attempt hit a transient response (rate limit, challenge stub,
         network error). Callers must treat it as UNKNOWN - never as "confirmed video".
     #>
-    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30)
-    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec
+    param([Parameter(Mandatory)][string]$Url, [string]$Referer, [int]$Attempts = 5, [int]$TimeoutSec = 30, [string]$CookieFile)
+    $page = Get-TikTokPostPage -Url $Url -Referer $Referer -Attempts $Attempts -TimeoutSec $TimeoutSec -CookieFile $CookieFile
     if ($page.Status -ne 'ok') {
         return [PSCustomObject]@{ IsPhoto = $null; Status = 'undetermined'; Images = @(); Attempts = $page.Attempts }
     }
@@ -383,10 +411,10 @@ function global:Test-TikTokPhotoPost {
 function global:Get-TikTokPostDesc {
     <# The caption of a TikTok post, read from the page HTML. yt-dlp cannot supply this for
        photo posts because extraction fails before the title is parsed. #>
-    param([Parameter(Mandatory)][string]$Url, [int]$Attempts = 3, [int]$TimeoutSec = 30)
+    param([Parameter(Mandatory)][string]$Url, [int]$Attempts = 3, [int]$TimeoutSec = 30, [string]$CookieFile)
     # Best-effort caption fetch through the shared page fetcher (retries + backoff).
     # A transient page yields $null and callers fall back to a generic title.
-    $page = Get-TikTokPostPage -Url $Url -Referer "https://www.tiktok.com/" -Attempts $Attempts -TimeoutSec $TimeoutSec
+    $page = Get-TikTokPostPage -Url $Url -Referer "https://www.tiktok.com/" -Attempts $Attempts -TimeoutSec $TimeoutSec -CookieFile $CookieFile
     if ($page.Status -ne 'ok') { return $null }
     $html = $page.Html
     if (-not $html -or $html -notmatch '"desc"\s*:\s*"') { return $null }
@@ -405,9 +433,10 @@ function global:Save-TikTokPhotoPost {
         # NOT re-fetched - this halves HTTP traffic in batch runs. Omit to fetch.
         [string[]]$Images,
         [int]$PhotoAttempts = 5,
-        [int]$TimeoutSec = 30
+        [int]$TimeoutSec = 30,
+        [string]$CookieFile
     )
-    $urls = if ($Images) { @($Images) } else { @(Get-TikTokPhotoPost -Url $Url -Attempts $PhotoAttempts -TimeoutSec $TimeoutSec) }
+    $urls = if ($Images) { @($Images) } else { @(Get-TikTokPhotoPost -Url $Url -Attempts $PhotoAttempts -TimeoutSec $TimeoutSec -CookieFile $CookieFile) }
     if (-not $urls -or $urls.Count -eq 0) { return $false }
     $safe = ($BaseName -replace '[\\/:*?"<>|]', '_')
     if ($safe.Length -gt 120) { $safe = $safe.Substring(0, 120).Trim() }
@@ -498,6 +527,46 @@ function global:yt {
         $Url = $Url -replace '/photo/\d+', "/video/$($photoIdFromUrl)"
     }
     $isTiktok = ($Url -match 'tiktok\.com')
+    # Pre-calculate cookie file so TikTok probes can share it
+    $cookieStore = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\cookies'
+    $hostName = try { ([uri]$Url).Host } catch { $null }
+    $siteName = if ($hostName) { $hostName } else { 'site' }
+    $mode = if ($isVideo) { 'video' } else { 'song' }
+
+    function Get-UsedCookie {
+        if ($c) {
+            $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
+            if (Test-Path -LiteralPath $cookieFile) { return $cookieFile }
+            Write-Warning "yt: cookies file not found: $cookieFile"
+            return $null
+        }
+        if ($hostName) {
+            $cwdCookie = Get-ChildItem -Path . -Filter "${hostName}_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($cwdCookie) { return $cwdCookie.FullName }
+        }
+        $cwdCookie = Get-ChildItem -Path . -Filter "*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($cwdCookie) { return $cwdCookie.FullName }
+        if ($hostName) {
+            $hostParts = $hostName -split '\.'
+            for ($i = 0; $i -lt ($hostParts.Count - 1); $i++) {
+                $candHost = ($hostParts[$i..($hostParts.Count - 1)] -join '.')
+                $check = Join-Path $cookieStore "${candHost}_cookies.txt"
+                if (Test-Path -LiteralPath $check) { return $check }
+            }
+        }
+        return $null
+    }
+    $usedCookieInitial = Get-UsedCookie
+
+    function Get-TikTokItemUrl {
+        param([string]$Id)
+        if (-not $Id) { return $null }
+        if ($Url -match 'tiktok\.com/(@[^/?#]+)') {
+            return "https://www.tiktok.com/$($Matches[1])/video/$Id"
+        }
+        return "https://www.tiktok.com/video/$Id"
+    }
+
     # Photos are dissociated by default on TikTok: image posts ship as audio-only m4a
     # with the picture present only as embedded cover art, so save the full-res
     # original alongside. -NoImages forces the old audio-only behaviour.
@@ -518,9 +587,9 @@ function global:yt {
     if ($isTiktok -and $Url -match '/(video|photo)/\d+') {
         if ($photoIdFromUrl) {
             $photoDetection = 'definitive'
-            $photoPostImages = @(Get-TikTokPhotoPost -Url $Url)
+            $photoPostImages = @(Get-TikTokPhotoPost -Url $Url -CookieFile $usedCookieInitial)
         } else {
-            $det = Test-TikTokPhotoPost -Url $Url
+            $det = Test-TikTokPhotoPost -Url $Url -CookieFile $usedCookieInitial
             $photoDetection = $det.Status
             if ($det.IsPhoto) {
                 $isPhotoPost = $true
@@ -559,10 +628,6 @@ function global:yt {
         $argsList += @("--sleep-requests", $SleepRequests)
     }
     $argsList += @("--extractor-retries", "5", "--retry-sleep", "http:exp=1:30")
-    $cookieStore = Join-Path $env:USERPROFILE 'Documents\WindowsPowerShell\cookies'
-    $hostName = try { ([uri]$Url).Host } catch { $null }
-    $siteName = if ($hostName) { $hostName } else { 'site' }
-    $mode = if ($isVideo) { 'video' } else { 'song' }
     $archivePath = $null
     if (-not $NoArchive) {
         if ($Archive) {
@@ -575,29 +640,6 @@ function global:yt {
         if (-not ($isVideo -and $isPhotoPost)) {
             $argsList += @("--download-archive", $archivePath)
         }
-    }
-    function Get-UsedCookie {
-        if ($c) {
-            $cookieFile = if ([System.IO.Path]::IsPathRooted($c)) { $c } else { Join-Path (Get-Location).Path $c }
-            if (Test-Path -LiteralPath $cookieFile) { return $cookieFile }
-            Write-Warning "yt: cookies file not found: $cookieFile"
-            return $null
-        }
-        if ($hostName) {
-            $cwdCookie = Get-ChildItem -Path . -Filter "${hostName}_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-            if ($cwdCookie) { return $cwdCookie.FullName }
-        }
-        $cwdCookie = Get-ChildItem -Path . -Filter "*_cookies.txt" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($cwdCookie) { return $cwdCookie.FullName }
-        if ($hostName) {
-            $hostParts = $hostName -split '\.'
-            for ($i = 0; $i -lt ($hostParts.Count - 1); $i++) {
-                $candHost = ($hostParts[$i..($hostParts.Count - 1)] -join '.')
-                $check = Join-Path $cookieStore "${candHost}_cookies.txt"
-                if (Test-Path -LiteralPath $check) { return $check }
-            }
-        }
-        return $null
     }
     $isProfile = ($Url -notmatch '/(video|shorts|watch|photo|reel|p|status|clip|stories|highlights|share|s)/') -and
                  ($Url -match '(tiktok\.com/@|youtube\.com/(c/|channel/|@|playlist|user/)|instagram\.com/|x\.com/|twitter\.com/)')
@@ -667,6 +709,12 @@ function global:yt {
         param([string]$Id)
         if (-not (Test-Downloaded -Id $Id)) { return $false }
         if ($trackImages -and -not (Test-ImagesDone -Id $Id)) {
+            # If a completed video file already exists on disk, it's a confirmed video post; skip HTTP probe
+            $hasVideoFile = [bool](Get-ChildItem -Path . -File -ErrorAction SilentlyContinue | Where-Object {
+                $_.Name -match [regex]::Escape($Id) -and $_.Extension -match '^\.(mp4|mkv|webm|mov)$'
+            })
+            if ($hasVideoFile) { return $true }
+
             # Audio is present (or archived) but no image: only a photo post can be in
             # this state, since ordinary video posts never gain a matching image file.
             # Tri-state probe (bounded attempts: this runs in the scan phase):
@@ -675,7 +723,8 @@ function global:yt {
             #  - undetermined -> NOT complete. Every attempt was transient (rate limit /
             #    challenge stub), so the type is UNKNOWN. Returning $true here would skip
             #    the post forever - the exact mis-routing this guardrail exists to prevent.
-            $det = Test-TikTokPhotoPost -Url "$($Url.TrimEnd('/'))/video/$Id" -Attempts 3 -TimeoutSec 15
+            $itemUrl = Get-TikTokItemUrl -Id $Id
+            $det = Test-TikTokPhotoPost -Url $itemUrl -Attempts 3 -TimeoutSec 15 -CookieFile (Get-UsedCookie)
             if ($det.IsPhoto -ne $false) { return $false }
         }
         return $true
@@ -693,18 +742,19 @@ function global:yt {
         $unknown = @()
         $total = @($Ids).Count
         $idx = 0
+        $currentCookie = Get-UsedCookie
         foreach ($pid2 in $Ids) {
             $idx++
             if (Test-ImagesDone -Id $pid2) { continue }
             Write-Host "  [$idx/$total] probing $pid2..." -ForegroundColor DarkGray
-            $vidUrl = "$($Url.TrimEnd('/'))/video/$pid2"
+            $vidUrl = Get-TikTokItemUrl -Id $pid2
             # Bounded budget per item: 2 quick attempts here; the save below carries the
             # full retry budget. A caption is only fetched for confirmed photo posts -
             # undetermined items use a generic title instead of burning 3 more fetches.
-            $det = Test-TikTokPhotoPost -Url $vidUrl -Attempts 2 -TimeoutSec 15
+            $det = Test-TikTokPhotoPost -Url $vidUrl -Attempts 2 -TimeoutSec 15 -CookieFile $currentCookie
             if ($det.IsPhoto -eq $false) { $notphoto += $pid2; continue }
             if ($det.IsPhoto) {
-                $title = Get-TikTokPostDesc -Url $vidUrl -Attempts 2 -TimeoutSec 15
+                $title = Get-TikTokPostDesc -Url $vidUrl -Attempts 2 -TimeoutSec 15 -CookieFile $currentCookie
             } else {
                 $title = $null
             }
@@ -715,7 +765,7 @@ function global:yt {
             } else {
                 Write-Host "Photo post $pid2 - $title ($($det.Images.Count) image(s))" -ForegroundColor Cyan
             }
-            $saveArgs = @{ Url = $vidUrl; BaseName = "$title [$pid2]"; TimeoutSec = 15 }
+            $saveArgs = @{ Url = $vidUrl; BaseName = "$title [$pid2]"; TimeoutSec = 15; CookieFile = $currentCookie }
             if ($det.Images.Count -gt 0) { $saveArgs.Images = $det.Images }
             if (Save-TikTokPhotoPost @saveArgs) {
                 $saved++
@@ -749,17 +799,18 @@ function global:yt {
         $script:photoStillFailed = @($notphoto) + @($unknown)
         return $saved
     }
-    if ($N -gt 0) {
-        Write-Host "`nScanning $siteName (first $N items)..." -ForegroundColor DarkGray
-        $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s", "-I", ":$N")
+    function Invoke-PlaylistDiffScan {
+        param([int]$Limit = 0)
+        $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s")
+        if ($Limit -gt 0) { $scanArgs += @("-I", ":$Limit") }
         $scanCookie = Get-UsedCookie
         if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
         $entries = & $ytdlp @scanArgs $Url 2>&1
         $scanExit = $LASTEXITCODE
         $scanParsed = @($entries | Where-Object { "$_" -match '\|\|\|' }).Count
         $scanFailed = ($scanParsed -eq 0)
-        $missing = @()
-        $found = @()
+        $scanMissing = @()
+        $scanFound = @()
         foreach ($entry in $entries) {
             $parts = "$entry" -split '\|\|\|', 3
             if ($parts.Count -lt 3) { continue }
@@ -767,24 +818,32 @@ function global:yt {
             $vidId = $parts[1].Trim()
             $title = $parts[2].Trim()
             if (Test-Complete -Id $vidId) {
-                $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
+                $scanFound += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             } else {
-                $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
+                $scanMissing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
             }
         }
+        [PSCustomObject]@{
+            Failed  = $scanFailed
+            Exit    = $scanExit
+            Found   = $scanFound
+            Missing = $scanMissing
+        }
+    }
+
+    if ($N -gt 0) {
+        Write-Host "`nScanning $siteName (first $N items)..." -ForegroundColor DarkGray
+        $diff = Invoke-PlaylistDiffScan -Limit $N
+        $missing = $diff.Missing
+        $found = $diff.Found
+        $scanFailed = $diff.Failed
         if ($scanFailed) {
-            # Scan yielded zero parseable rows (auth failure, rate limit, bad URL).
-            # Never claim "already downloaded" - fall through to the direct download
-            # so yt-dlp's real error + the cookie-refresh prompt surface.
-            Write-Host "yt: scan failed (exit $scanExit, no entries parsed) - falling through to direct download." -ForegroundColor Yellow
+            Write-Host "yt: scan failed (exit $($diff.Exit), no entries parsed) - falling through to direct download." -ForegroundColor Yellow
         }
         $M = $found.Count
         $totalMissing = $missing.Count
         Write-Host ""
-        if ($scanFailed) {
-            # Skip the -I diff; download the URL as-is below.
-        }
-        elseif ($M -gt 0) {
+        if (-not $scanFailed -and $M -gt 0) {
             Write-Host "Already downloaded ($M):" -ForegroundColor Green
             foreach ($f in $found) { Write-Host "  [$($f.Index)] $($f.Title)" -ForegroundColor DarkGray }
         }
@@ -811,32 +870,12 @@ function global:yt {
         }
     } elseif ($isProfile) {
         Write-Host "`nNo -N given - diffing the whole $siteName profile against this folder..." -ForegroundColor DarkGray
-        $scanArgs = @("--flat-playlist", "--no-warnings", "--print", "%(playlist_index)s|||%(id)s|||%(title)s")
-        $scanCookie = Get-UsedCookie
-        if ($scanCookie) { $scanArgs += @("--cookies", $scanCookie) }
-        $entries = & $ytdlp @scanArgs $Url 2>&1
-        $scanExit = $LASTEXITCODE
-        $scanParsed = @($entries | Where-Object { "$_" -match '\|\|\|' }).Count
-        $scanFailed = ($scanParsed -eq 0)
-        $missing = @()
-        $found = @()
-        foreach ($entry in $entries) {
-            $parts = "$entry" -split '\|\|\|', 3
-            if ($parts.Count -lt 3) { continue }
-            $idx = $parts[0].Trim()
-            $vidId = $parts[1].Trim()
-            $title = $parts[2].Trim()
-            if (Test-Complete -Id $vidId) {
-                $found += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
-            } else {
-                $missing += [PSCustomObject]@{ Index = $idx; Title = $title; Id = $vidId }
-            }
-        }
+        $diff = Invoke-PlaylistDiffScan
+        $missing = $diff.Missing
+        $found = $diff.Found
+        $scanFailed = $diff.Failed
         if ($scanFailed) {
-            # Scan yielded zero parseable rows (auth failure, rate limit, bad URL).
-            # Never claim "nothing left" - fall through to the direct download
-            # so yt-dlp's real error + the cookie-refresh prompt surface.
-            Write-Host "yt: scan failed (exit $scanExit, no entries parsed) - falling through to direct download." -ForegroundColor Yellow
+            Write-Host "yt: scan failed (exit $($diff.Exit), no entries parsed) - falling through to direct download." -ForegroundColor Yellow
         }
         Write-Host ""
         if (-not $scanFailed -and $found.Count -gt 0) {
@@ -1284,6 +1323,10 @@ function global:Save-GotoStore {
         [Parameter(Position = 1)]
         [object]$Aliases
     )
+    $parent = Split-Path -Parent $StorePath
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
     $sorted = [pscustomobject]@{}
     foreach ($prop in ($Aliases.PSObject.Properties | Where-Object { $_.Name -notlike '_*' } | Sort-Object { $_.Name.ToLowerInvariant() })) {
         $sorted | Add-Member -NotePropertyName $prop.Name -NotePropertyValue $prop.Value
@@ -1410,7 +1453,7 @@ Options:
         }
     }
 
-    $storePath = Join-Path $HOME '.config' 'goto-aliases.json'
+    $storePath = Join-Path (Join-Path $HOME '.config') 'goto-aliases.json'
     $aliases = $null
     if (Test-Path -LiteralPath $storePath) {
         try {
@@ -1531,12 +1574,12 @@ function global:ow {
         return
     }
     $names = @('openwhispr', 'openwhispr-preview')
-    $procs = pm2 jlist 2>$null | ConvertFrom-Json -AsHashtable
+    $procs = pm2 jlist 2>$null | ConvertFrom-Json
     $online = @()
     $offline = @()
     foreach ($name in $names) {
-        $p = $procs | Where-Object { $_['name'] -eq $name }
-        if ($p -and $p['pm2_env']['status'] -eq 'online') {
+        $p = $procs | Where-Object { $_.name -eq $name }
+        if ($p -and $p.pm2_env.status -eq 'online') {
             $online += $name
         } else {
             $offline += $name
@@ -1611,10 +1654,9 @@ Set-Alias -Name c -Value cls -Option AllScope -Force
 # the objects on the pipeline still carry raw byte Length, so piping is
 # unaffected.
 #
-# Rendering: when ls output goes straight to the console it draws its own
-# fixed-width text table (Format-LsLines) with exactly two spaces between every
-# column; when piped or assigned it emits the raw decorated objects and the
-# ps1xml view below is the fallback (and applies to Get-ChildItem/dir too).
+# Rendering: filesystem items render through the FileSystemSize.format.ps1xml
+# view (both in console and pipeline), displaying Mode, LastWriteTime, Size,
+# Length, and Name columns. Format-LsLines provides an alternate standalone text formatter.
 # Reloads whenever the format file changes (so uprof picks up edits mid-session)
 # and skips reloads otherwise, so repeated reloads don't stack duplicate views.
 $fmtFile = Join-Path $PSScriptRoot 'FileSystemSize.format.ps1xml'
@@ -1878,17 +1920,19 @@ function global:alias {
     $searchFiles = @($PROFILE)
     if ($PROFILE.CurrentUserAllHosts -and $PROFILE.CurrentUserAllHosts -ne $PROFILE) { $searchFiles += $PROFILE.CurrentUserAllHosts }
     if ($PROFILE.AllUsersAllHosts -and (Test-Path $PROFILE.AllUsersAllHosts)) { $searchFiles += $PROFILE.AllUsersAllHosts }
+    $thisProfile = Join-Path $HOME 'Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1'
+    if ($thisProfile -notin $searchFiles) { $searchFiles += $thisProfile }
     foreach ($file in $searchFiles) {
         if (-not (Test-Path $file)) { continue }
         $content = Get-Content $file -Raw
         $escapedName = [regex]::Escape($name)
         if ($cmd.CommandType -eq 'Alias') {
-            if ($content -match "(?m)^\s*Set-Alias\s+-Name\s+'?$escapedName'?\s") {
+            if ($content -match "(?m)^\s*Set-Alias\s+(?:-[A-Za-z]+\s+)*-Name\s+'?$escapedName'?\s") {
                 Write-Host "  defined in: $file" -ForegroundColor DarkGray
                 return
             }
         } elseif ($cmd.CommandType -eq 'Function') {
-            if ($content -match "(?m)^\s*function\s+.*:$escapedName\s*[{]") {
+            if ($content -match "(?m)^\s*function\s+(?:[A-Za-z]+:)?$escapedName\b") {
                 Write-Host "  defined in: $file" -ForegroundColor DarkGray
                 return
             }
@@ -2028,7 +2072,7 @@ function global:wp {
 
 # End Waypoint block
 
-function Write-Text {
+function global:Write-Text {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Position = 0, ValueFromPipeline = $true)]
@@ -2084,7 +2128,7 @@ function Write-Text {
         )
     }
 }
-Set-Alias -Name wt -Value Write-Text
+Set-Alias -Name wt -Value Write-Text -Scope Global -Force
 
 function global:tc { timer clock @args }
 # --- qw2: Qwen-Image-2.1 helper (installed by link.ps1) ---

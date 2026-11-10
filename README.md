@@ -33,7 +33,9 @@ Personal PowerShell profile — custom aliases and utility functions for daily u
 | `Save-GotoStore` | Internal helper: write the goto alias store |
 | `Find-GotoAlias` | Internal helper: exact-match lookup in the goto alias store |
 | `op` | Launch opencode |
-| `qw2` | Qwen-Image-2.1 generation/editing helper (`qwen-gen.ps1`) || `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
+| `qw2` | Qwen-Image-2.1 generation/editing helper (`qwen-gen.ps1`) |
+| `fibo` | Fibo2-Edit-Turbo generation/editing helper (`fibo-gen.ps1`) |
+| `goto` | Open a URL in the browser, Google-search a string, or save/list/delete URL aliases |
 | `sf` | `sempath find` |
 | `sg` | `sempath get` (or `sempath <args>`) |
 | `HH` | `hermes gateway run -v` (with `status`/`kill`/`stop` subcommands) |
@@ -63,7 +65,7 @@ scanning and intelligent skip logic.
 #### Usage
 
 ```powershell
-yt [<url>] [-c <cookies-file>] [-v | -video] [-s | -song] [<N>]
+yt [<url>] [-c <cookies-file>] [-v | -video] [-s | -song] [<N>] [-SleepInterval <sec>] [-SleepRequests <sec>] [-IgnoreErrors | -AbortOnError] [-Archive <path> | -NoArchive] [-Photos] [-Images | -NoImages] [-Yes | -F]
 ```
 
 #### Modes
@@ -73,10 +75,13 @@ yt [<url>] [-c <cookies-file>] [-v | -video] [-s | -song] [<N>]
 | **Song (default)** | *(none)* or `-s` / `-song` | Extracts audio, saves as MP3 with embedded thumbnail + metadata |
 | **Video** | `-v` / `-video` | Downloads best video + best audio muxed together |
 | **Cookies** | `-c <file>` | Pass a cookies file to yt-dlp (absolute or relative path) |
+| **Photos** | `-Photos` | TikTok photo-post extractor mode |
+| **Fast / Non-interactive** | `-Yes` / `-F` | Automatically confirms prompts |
 
-Both modes always embed thumbnail and metadata. Downloads run with
-`--abort-on-error` — a failing item stops the batch immediately instead of
-grinding through the rest.
+Both modes always embed thumbnail and metadata. Multi-item runs default to
+`--ignore-errors` so failures don't abort the entire batch, while single-item
+downloads run with `--abort-on-error`. You can explicitly override with
+`-IgnoreErrors` or `-AbortOnError`.
 
 #### Cookies
 
